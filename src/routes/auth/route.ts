@@ -1,0 +1,192 @@
+/**
+ * Auth 路由
+ */
+
+import { Hono } from "hono"
+import { isAuthenticated, getUserInfo, setAuth, clearAuth, startOAuthLogin } from "~/services/antigravity/login"
+import { accountManager } from "~/services/antigravity/account-manager"
+import { state } from "~/lib/state"
+import { authStore } from "~/services/auth/store"
+import { importCodexAuthFile, startCodexOAuthSession, pollCodexOAuthSession } from "~/services/codex/oauth"
+import { startCopilotDeviceFlow, pollCopilotSession, importCopilotAuthFiles } from "~/services/copilot/oauth"
+
+export const authRouter = new Hono()
+
+// 获取认证状态
+authRouter.get("/status", (c) => {
+    const userInfo = getUserInfo()
+    return c.json({
+        authenticated: isAuthenticated(),
+        email: userInfo.email,
+        name: userInfo.name,
+    })
+})
+
+authRouter.get("/accounts", (c) => {
+    accountManager.load()
+    return c.json({
+        accounts: {
+            antigravity: authStore.listSummaries("antigravity"),
+            codex: authStore.listSummaries("codex"),
+            copilot: authStore.listSummaries("copilot"),
+        },
+    })
+})
+
+// 登录（触发 OAuth 或设置 token）
+authRouter.post("/login", async (c) => {
+    try {
+        // 尝试解析 body，如果为空则触发 OAuth
+        let body: { accessToken?: string; refreshToken?: string; email?: string; name?: string; provider?: string; force?: boolean } = {}
+        try {
+            const text = await c.req.text()
+            if (text && text.trim()) {
+                body = JSON.parse(text)
+            }
+        } catch {
+            // body 为空或无效 JSON
+        }
+
+        const provider = (body.provider || "antigravity").toLowerCase()
+        const forceInteractive = body.force === true
+
+        if (provider === "copilot") {
+            if (!forceInteractive) {
+                const imported = importCopilotAuthFiles()
+                if (imported.length > 0) {
+                    return c.json({
+                        success: true,
+                        status: "success",
+                        provider: "copilot",
+                        source: "import",
+                        login: imported[0].login,
+                    })
+                }
+            }
+            const session = await startCopilotDeviceFlow()
+            return c.json({
+                success: true,
+                status: "pending",
+                provider: "copilot",
+                device_code: session.deviceCode,
+                user_code: session.userCode,
+                verification_uri: session.verificationUri,
+                interval: session.interval,
+            })
+        }
+
+        if (provider === "codex") {
+            if (!forceInteractive) {
+                const account = await importCodexAuthFile()
+                if (account) {
+                    return c.json({
+                        success: true,
+                        provider: "codex",
+                        email: account.email,
+                        id: account.id,
+                        status: "success",
+                        source: "import",
+                    })
+                }
+            }
+
+            const session = startCodexOAuthSession()
+            return c.json({
+                success: true,
+                provider: "codex",
+                status: "pending",
+                auth_url: session.authUrl,
+                auth_url_fallback: session.fallbackUrl,
+                state: session.state,
+                expires_at: session.expiresAt,
+            })
+        }
+
+        // 默认 Antigravity
+        if (!body.accessToken) {
+            const result = await startOAuthLogin()
+            if (result.success) {
+                accountManager.load()
+                if (state.accessToken && state.refreshToken) {
+                    accountManager.addAccount({
+                        id: state.userEmail || `account-${Date.now()}`,
+                        email: state.userEmail || "unknown",
+                        accessToken: state.accessToken,
+                        refreshToken: state.refreshToken,
+                        expiresAt: state.tokenExpiresAt || 0,
+                        projectId: state.cloudaicompanionProject,
+                    })
+                }
+                return c.json({
+                    success: true,
+                    authenticated: true,
+                    provider: "antigravity",
+                    email: result.email,
+                })
+            } else {
+                return c.json({ success: false, error: result.error }, 400)
+            }
+        }
+
+        setAuth(body.accessToken, body.refreshToken, body.email, body.name)
+        accountManager.load()
+        accountManager.addAccount({
+            id: body.email || `account-${Date.now()}`,
+            email: body.email || "unknown",
+            accessToken: body.accessToken,
+            refreshToken: body.refreshToken || "",
+            expiresAt: state.tokenExpiresAt || 0,
+            projectId: state.cloudaicompanionProject,
+        })
+        return c.json({
+            success: true,
+            authenticated: true,
+            provider: "antigravity",
+            email: body.email,
+            name: body.name,
+        })
+    } catch (error) {
+        return c.json({ error: (error as Error).message }, 500)
+    }
+})
+
+authRouter.get("/copilot/status", async (c) => {
+    const deviceCode = c.req.query("device_code")
+    if (!deviceCode) {
+        return c.json({ success: false, error: "device_code required" }, 400)
+    }
+    const session = await pollCopilotSession(deviceCode)
+    return c.json({
+        success: session.status !== "error",
+        status: session.status,
+        message: session.message,
+        account: session.account ? {
+            id: session.account.id,
+            login: session.account.login,
+            email: session.account.email,
+        } : undefined,
+    })
+})
+
+authRouter.get("/codex/status", async (c) => {
+    const state = c.req.query("state")
+    if (!state) {
+        return c.json({ success: false, error: "state required" }, 400)
+    }
+    const result = await pollCodexOAuthSession(state)
+    return c.json({
+        success: result.status !== "error",
+        status: result.status,
+        message: result.message,
+        account: result.account ? {
+            id: result.account.id,
+            email: result.account.email,
+        } : undefined,
+    })
+})
+
+// 登出
+authRouter.post("/logout", (c) => {
+    clearAuth()
+    return c.json({ success: true, authenticated: false })
+})
