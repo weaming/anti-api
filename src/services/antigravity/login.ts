@@ -132,11 +132,9 @@ export function setAuth(accessToken: string, refreshToken?: string, email?: stri
  */
 export async function startOAuthLogin(): Promise<{ success: boolean; error?: string; email?: string }> {
     try {
-        consola.info("Starting OAuth login flow...")
 
         // 1. 启动回调服务器
         const { server, port, waitForCallback } = await startOAuthCallbackServer()
-        consola.info(`OAuth callback server started on port ${port}`)
 
         // 2. 生成授权 URL
         const oauthState = generateState()
@@ -144,8 +142,6 @@ export async function startOAuthLogin(): Promise<{ success: boolean; error?: str
         const authUrl = generateAuthURL(redirectUri, oauthState)
 
         // 3. 打开浏览器
-        consola.info("Opening browser for authentication...")
-        consola.info(`If browser doesn't open, visit: ${authUrl}`)
 
         try {
             await Bun.$`open ${authUrl}`.quiet()
@@ -154,7 +150,6 @@ export async function startOAuthLogin(): Promise<{ success: boolean; error?: str
         }
 
         // 4. 等待回调（5分钟超时）
-        consola.info("Waiting for authentication callback...")
         const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => reject(new Error("Authentication timeout (5 minutes)")), 5 * 60 * 1000)
         })
@@ -181,15 +176,12 @@ export async function startOAuthLogin(): Promise<{ success: boolean; error?: str
         }
 
         // 7. 交换 code 获取 tokens
-        consola.info("Exchanging authorization code for tokens...")
         const tokens = await exchangeCode(callbackResult.code, redirectUri)
 
         // 8. 获取用户信息
-        consola.info("Fetching user information...")
         const userInfo = await fetchUserInfo(tokens.accessToken)
 
         // 9. 获取 Project ID
-        consola.info("Fetching project ID...")
         const projectId = await getProjectID(tokens.accessToken)
         const resolvedProjectId = projectId || generateMockProjectId()
         if (!projectId) {

@@ -9,9 +9,10 @@ import type { Context } from "hono"
 import { streamSSE } from "hono/streaming"
 import consola from "consola"
 
-import { createRoutedCompletion, createRoutedCompletionStream } from "~/services/routing/router"
+import { createRoutedCompletion, createRoutedCompletionStream, RoutingError } from "~/services/routing/router"
 import type { ClaudeMessage, ClaudeTool } from "~/lib/translator"
 import { rateLimiter } from "~/lib/rate-limiter"
+import { validateAnthropicRequest } from "~/lib/validation"
 import type {
     AnthropicMessagesPayload,
     AnthropicResponse,
@@ -53,27 +54,42 @@ function generateMessageId(): string {
 export async function handleCompletion(c: Context): Promise<Response> {
     // 🆕 在最开始获取全局锁 - 这是真正的"单进程模拟"
     const releaseLock = await rateLimiter.acquireExclusive()
-    consola.debug("🔒 Global lock acquired for request")
+    let releaseInFinally = true
 
     try {
         const payload = await c.req.json<AnthropicMessagesPayload>()
-        consola.debug(`Model: ${payload.model}, Tools: ${payload.tools?.length || 0}`)
+
+        // Input validation
+        const validation = validateAnthropicRequest(payload)
+        if (!validation.valid) {
+            return c.json({ error: { type: "invalid_request_error", message: validation.error } }, 400)
+        }
 
         const messages = translateMessages(payload)
         const tools = extractTools(payload)
 
         // 检查是否流式
         if (payload.stream) {
-            return handleStreamCompletion(c, payload, messages, tools, releaseLock)
+            const response = await handleStreamCompletion(c, payload, messages, tools, releaseLock)
+            releaseInFinally = false
+            return response
         }
 
         // 非流式请求
-        const result = await createRoutedCompletion({
-            model: payload.model,
-            messages,
-            tools,
-            maxTokens: payload.max_tokens,
-        })
+        let result
+        try {
+            result = await createRoutedCompletion({
+                model: payload.model,
+                messages,
+                tools,
+                maxTokens: payload.max_tokens,
+            })
+        } catch (error) {
+            if (error instanceof RoutingError) {
+                return c.json({ error: { type: "invalid_request_error", message: error.message } }, error.status)
+            }
+            throw error
+        }
 
         // 构建响应内容
         const content = result.contentBlocks.map(block => {
@@ -105,10 +121,14 @@ export async function handleCompletion(c: Context): Promise<Response> {
             },
         }
 
+
+        // Note: Usage recording is handled in chat.ts with the actual native model ID
+
         return c.json(response)
     } finally {
-        releaseLock()
-        consola.debug("🔓 Global lock released")
+        if (releaseInFinally) {
+            releaseLock()
+        }
     }
 }
 
@@ -132,6 +152,8 @@ async function handleStreamCompletion(
                 maxTokens: payload.max_tokens,
             })
 
+            // 直接写入来自翻译器的 SSE 事件（不发送 ping，参照 proj-1）
+
             // 直接写入来自翻译器的 SSE 事件
             for await (const event of chatStream) {
                 await stream.write(event)
@@ -149,7 +171,6 @@ async function handleStreamCompletion(
         } finally {
             // 🆕 流结束时释放锁
             releaseLock()
-            consola.debug("🔓 Global lock released (stream)")
         }
     })
 }

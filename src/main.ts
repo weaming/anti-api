@@ -14,6 +14,7 @@ import { state } from "./lib/state"
 import { initAuth, isAuthenticated, saveAuth, startOAuthLogin } from "./services/antigravity/login"
 import { getProjectID } from "./services/antigravity/oauth"
 import { accountManager } from "./services/antigravity/account-manager"
+import { getSetting } from "./services/settings"
 
 /**
  * 打开浏览器
@@ -101,6 +102,10 @@ const start = defineCommand({
             state.csrfToken = lsInfo.csrfToken
         }
 
+        // 打印启动 banner
+        const { logStartup, logStartupSuccess } = await import("./lib/logger")
+        logStartup(state.port)
+
         // 启动服务器
         Bun.serve({
             fetch: server.fetch,
@@ -108,35 +113,24 @@ const start = defineCommand({
             idleTimeout: 120,  // 2分钟超时，适应慢速 API 响应
         })
 
-        if (args.verbose) {
-            consola.success(`端口: http://localhost:${state.port}`)
-            consola.success(`面板: http://localhost:${state.port}/quota`)
+        logStartupSuccess(state.port)
+
+        // 根据设置决定是否自动打开面板
+        if (getSetting("autoOpenDashboard")) {
+            openBrowser(`http://localhost:${state.port}/quota`)
         }
 
-        // 如果未登录，自动弹出登录窗口
-        if (!isAuthenticated()) {
-            if (args.verbose) {
-                consola.info("未检测到登录状态，正在打开浏览器进行 OAuth 登录...")
-            }
-            const result = await startOAuthLogin()
-            if (result.success) {
-                if (args.verbose) {
-                    consola.success(`登录成功: ${result.email}`)
+        // 根据设置决定是否自动启动 ngrok（延迟 3 秒确保服务就绪）
+        if (getSetting("autoNgrok")) {
+            setTimeout(async () => {
+                const { startNgrok } = await import("./services/tunnel-manager")
+                const result = await startNgrok(state.port)
+                if (result.url) {
+                    consola.success(`ngrok tunnel: ${result.url}`)
+                } else if (result.error) {
+                    consola.warn(`ngrok: ${result.error}`)
                 }
-                // 登录成功后打开面板
-                openBrowser(`http://localhost:${state.port}/quota`)
-            } else {
-                if (args.verbose) {
-                    consola.error(`登录失败: ${result.error}`)
-                    consola.info("你可以稍后运行 'bun run src/main.ts login' 重新登录")
-                }
-            }
-        } else {
-            if (args.verbose) {
-                consola.success(`已登录: ${state.userEmail}`)
-            }
-            // 已登录时自动打开面板
-            openBrowser(`http://localhost:${state.port}/quota`)
+            }, 3000)
         }
     },
 })

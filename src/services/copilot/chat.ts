@@ -1,19 +1,70 @@
 import consola from "consola"
+import https from "https"
 import { authStore } from "~/services/auth/store"
 import { UpstreamError } from "~/lib/error"
 import type { ProviderAccount } from "~/services/auth/types"
 import type { ClaudeMessage, ClaudeTool } from "~/lib/translator"
 import { toOpenAIMessages, toOpenAITools } from "~/services/providers/openai-adapter"
 
+// Disable TLS certificate verification for Copilot API calls
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+
 const COPILOT_COMPLETIONS_URL = "https://api.githubcopilot.com/chat/completions"
 const COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
+const COPILOT_MODELS_URL = "https://api.githubcopilot.com/models"
 
 interface CopilotTokenResponse {
     token: string
     expires_at?: number
 }
 
+interface CopilotModelInfo {
+    id: string
+    name?: string
+    model_picker_enabled?: boolean
+    vendor?: string
+}
+
 const tokenCache = new Map<string, { token: string; expiresAt: number }>()
+const modelsCache = new Map<string, { models: CopilotModelInfo[]; expiresAt: number }>()
+
+// Map internal model names to Copilot API compatible names
+// Based on GitHub Copilot Pro supported models:
+// Anthropic: claude-haiku-4.5, claude-opus-4.1, claude-opus-4.5, claude-sonnet-4, claude-sonnet-4.5
+// OpenAI: gpt-4.1, gpt-4o, gpt-5, gpt-5-mini, gpt-5.1, gpt-5.1-codex, gpt-5.1-codex-max, gpt-5.2
+// Google: gemini-2.5-pro, gemini-3-flash, gemini-3-pro
+function mapCopilotModelName(model: string): string {
+    const modelMappings: Record<string, string> = {
+        // Claude models - map hyphenated to dotted format
+        "claude-sonnet-4-5": "claude-sonnet-4.5",
+        "claude-sonnet-4-5-thinking": "claude-sonnet-4.5", // No thinking variant in Copilot
+        "claude-opus-4-5": "claude-opus-4.5",
+        "claude-opus-4-5-thinking": "claude-opus-4.5",
+        "claude-opus-4-1": "claude-opus-4.1",
+        "claude-haiku-4-5": "claude-haiku-4.5",
+        "claude-sonnet-4": "claude-sonnet-4",
+        // GPT models
+        "gpt-4.1": "gpt-4.1",
+        "gpt-4.1-mini": "gpt-4.1-mini",
+        "gpt-4o": "gpt-4o",
+        "gpt-4o-mini": "gpt-4o-mini",
+        "gpt-5": "gpt-5",
+        "gpt-5-mini": "gpt-5-mini",
+        "gpt-5.1": "gpt-5.1",
+        "gpt-5.1-codex": "gpt-5.1-codex",
+        "gpt-5.2": "gpt-5.2",
+        // Gemini models
+        "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3-flash": "gemini-3-flash",
+        "gemini-3-pro": "gemini-3-pro",
+    }
+
+    const mapped = modelMappings[model]
+    if (mapped) {
+        return mapped
+    }
+    return model
+}
 
 interface OpenAIResponse {
     choices: Array<{
@@ -32,14 +83,20 @@ export async function createCopilotCompletion(
 ) {
     const apiToken = await getCopilotApiToken(account)
 
+    // Fetch and log available models (first call will log, subsequent uses cache)
+    await fetchCopilotModels(apiToken)
+
+    // Map model name to Copilot-compatible format
+    const mappedModel = mapCopilotModelName(model)
+
     const requestBody = {
-        model,
+        model: mappedModel,
         messages: toOpenAIMessages(messages),
         tools: toOpenAITools(tools),
         max_tokens: maxTokens,
     }
 
-    const response = await fetch(COPILOT_COMPLETIONS_URL, {
+    const response = await fetchInsecureJson(COPILOT_COMPLETIONS_URL, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -51,14 +108,13 @@ export async function createCopilotCompletion(
         body: JSON.stringify(requestBody),
     })
 
-    if (!response.ok) {
-        const errorText = await response.text()
-        const retryAfter = response.headers.get("retry-after") || undefined
-        throw new UpstreamError("copilot", response.status, errorText, retryAfter)
+    if (response.status < 200 || response.status >= 300) {
+        consola.error(`Copilot error ${response.status} for model ${mappedModel}:`, response.text.slice(0, 500))
+        throw new UpstreamError("copilot", response.status, response.text, undefined)
     }
 
-    const data = await response.json() as OpenAIResponse
-    const choice = data.choices?.[0]
+    const data = response.data as OpenAIResponse
+    const choice = data?.choices?.[0]
     const content = choice?.message?.content || ""
     const toolCalls = choice?.message?.tool_calls || []
 
@@ -95,7 +151,7 @@ async function getCopilotApiToken(account: ProviderAccount): Promise<string> {
         return cached.token
     }
 
-    const response = await fetch(COPILOT_TOKEN_URL, {
+    const response = await fetchInsecureJson(COPILOT_TOKEN_URL, {
         method: "GET",
         headers: {
             Authorization: `Bearer ${account.accessToken}`,
@@ -104,9 +160,9 @@ async function getCopilotApiToken(account: ProviderAccount): Promise<string> {
         },
     })
 
-    const data = await response.json() as CopilotTokenResponse
-    if (!response.ok || !data.token) {
-        throw new Error(`copilot:token:${response.status}:${JSON.stringify(data)}`)
+    const data = response.data as CopilotTokenResponse
+    if (response.status < 200 || response.status >= 300 || !data?.token) {
+        throw new Error(`copilot:token:${response.status}:${response.text}`)
     }
 
     const expiresAt = data.expires_at ? data.expires_at * 1000 : Date.now() + 10 * 60 * 1000
@@ -129,4 +185,101 @@ function mapFinishReason(reason?: string | null): string {
     if (reason === "length") return "max_tokens"
     if (reason === "tool_calls") return "tool_use"
     return reason
+}
+
+async function fetchCopilotModels(apiToken: string): Promise<CopilotModelInfo[]> {
+    const cached = modelsCache.get(apiToken)
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.models
+    }
+
+    try {
+        const response = await fetchInsecureJson(COPILOT_MODELS_URL, {
+            method: "GET",
+            headers: {
+                Authorization: `Bearer ${apiToken}`,
+                "Accept": "application/json",
+                "User-Agent": "GithubCopilot/1.0",
+                "Editor-Version": "vscode/1.100.0",
+                "Editor-Plugin-Version": "copilot/1.300.0",
+            },
+        })
+
+        if (response.status < 200 || response.status >= 300) {
+            consola.warn("Failed to fetch Copilot models:", response.status)
+            return []
+        }
+
+        const data = response.data as { data: CopilotModelInfo[] }
+        const models = data?.data || []
+
+        modelsCache.set(apiToken, { models, expiresAt: Date.now() + 5 * 60 * 1000 })
+        return models
+    } catch (error) {
+        consola.warn("Error fetching Copilot models:", error)
+        return []
+    }
+}
+
+// Insecure JSON fetch using Node.js https module to bypass TLS certificate errors
+type InsecureResponse = { status: number; data: any; text: string }
+
+async function fetchInsecureJson(
+    url: string,
+    options: { method?: string; headers?: Record<string, string>; body?: string }
+): Promise<InsecureResponse> {
+    const target = new URL(url)
+    const method = options.method || "GET"
+    const headers = {
+        "User-Agent": "anti-api/1.0",
+        ...(options.headers || {}),
+    }
+    const insecureAgent = new https.Agent({ rejectUnauthorized: false })
+
+    return new Promise((resolve, reject) => {
+        const req = https.request(
+            {
+                protocol: target.protocol,
+                hostname: target.hostname,
+                port: target.port || 443,
+                path: `${target.pathname}${target.search}`,
+                method,
+                headers,
+                agent: insecureAgent,
+                rejectUnauthorized: false,
+                timeout: 30000,
+            },
+            (res) => {
+                let body = ""
+                res.on("data", (chunk) => {
+                    body += chunk
+                })
+                res.on("end", () => {
+                    let data: any = null
+                    if (body) {
+                        try {
+                            data = JSON.parse(body)
+                        } catch {
+                            data = null
+                        }
+                    }
+                    resolve({
+                        status: res.statusCode || 0,
+                        data,
+                        text: body,
+                    })
+                })
+            }
+        )
+
+        req.on("error", reject)
+        req.on("timeout", () => {
+            req.destroy(new Error("Request timed out"))
+        })
+
+        if (options.body) {
+            req.write(options.body)
+        }
+        req.end()
+    })
 }

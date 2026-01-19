@@ -6,6 +6,25 @@ export interface ProviderModelOption {
     label: string
 }
 
+const CODEX_HIDDEN_MODELS = new Set([
+    "gpt-5.2-max-high",
+    "gpt-5.2-max",
+])
+
+const CODEX_MODELS: ProviderModelOption[] = [
+    { id: "gpt-5.2-max-high", label: "Codex - 5.2 Max (High)" },
+    { id: "gpt-5.2-max", label: "Codex - 5.2 Max" },
+    { id: "gpt-5.2", label: "Codex - 5.2" },
+    { id: "gpt-5.2-codex", label: "Codex - 5.2 Codex" },
+    { id: "gpt-5.1", label: "Codex - 5.1" },
+    { id: "gpt-5.1-codex", label: "Codex - 5.1 Codex" },
+    { id: "gpt-5.1-codex-max", label: "Codex - 5.1 Codex Max" },
+    { id: "gpt-5.1-codex-mini", label: "Codex - 5.1 Codex Mini" },
+    { id: "gpt-5", label: "Codex - 5" },
+    { id: "gpt-5-codex", label: "Codex - 5 Codex" },
+    { id: "gpt-5-codex-mini", label: "Codex - 5 Codex Mini" },
+]
+
 export function getProviderModels(provider: AuthProvider): ProviderModelOption[] {
     if (provider === "antigravity") {
         return AVAILABLE_MODELS.map(model => ({
@@ -27,23 +46,13 @@ export function getProviderModels(provider: AuthProvider): ProviderModelOption[]
     }
 
     if (provider === "codex") {
-        return [
-            { id: "gpt-5.2-max-high", label: "Codex - 5.2 Max (High)" },
-            { id: "gpt-5.2-max", label: "Codex - 5.2 Max" },
-            { id: "gpt-5.2", label: "Codex - 5.2" },
-            { id: "gpt-5.2-codex", label: "Codex - 5.2 Codex" },
-            { id: "gpt-5.1", label: "Codex - 5.1" },
-            { id: "gpt-5.1-codex", label: "Codex - 5.1 Codex" },
-            { id: "gpt-5.1-codex-max", label: "Codex - 5.1 Codex Max" },
-            { id: "gpt-5.1-codex-mini", label: "Codex - 5.1 Codex Mini" },
-            { id: "gpt-5", label: "Codex - 5" },
-            { id: "gpt-5-codex", label: "Codex - 5 Codex" },
-            { id: "gpt-5-codex-mini", label: "Codex - 5 Codex Mini" },
-            { id: "gpt-4o", label: "Codex - GPT-4o" },
-            { id: "gpt-4o-mini", label: "Codex - GPT-4o Mini" },
-            { id: "gpt-4.1", label: "Codex - GPT-4.1" },
-        ]
+        // ChatGPT Plus Codex only supports gpt-5 series models
+        return CODEX_MODELS.filter(model => !CODEX_HIDDEN_MODELS.has(model.id))
     }
 
     return []
+}
+
+export function isHiddenCodexModel(modelId: string): boolean {
+    return CODEX_HIDDEN_MODELS.has(modelId)
 }

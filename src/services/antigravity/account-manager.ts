@@ -30,22 +30,40 @@ function parseRateLimitReason(statusCode: number, errorText: string): RateLimitR
     }
 
     const trimmed = errorText.trim()
+
+    // 🆕 首先尝试解析 JSON 以获取精确的 reason
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
         try {
             const json = JSON.parse(trimmed)
-            const reason = json?.error?.details?.[0]?.reason
-            if (typeof reason === "string") {
-                if (reason === "QUOTA_EXHAUSTED") return "quota_exhausted"
-                if (reason === "RATE_LIMIT_EXCEEDED") return "rate_limit_exceeded"
-                if (reason === "MODEL_CAPACITY_EXHAUSTED") return "model_capacity_exhausted"
+            const details = json?.error?.details
+
+            // 检查 details 中是否有明确的 reason
+            if (Array.isArray(details)) {
+                for (const detail of details) {
+                    const reason = detail?.reason
+                    if (typeof reason === "string") {
+                        if (reason === "QUOTA_EXHAUSTED") return "quota_exhausted"
+                        if (reason === "RATE_LIMIT_EXCEEDED") return "rate_limit_exceeded"
+                        if (reason === "MODEL_CAPACITY_EXHAUSTED") return "model_capacity_exhausted"
+                    }
+                }
             }
 
+            // 检查 message 中的关键词
             const message = json?.error?.message
             if (typeof message === "string") {
                 const msgLower = message.toLowerCase()
-                if (msgLower.includes("per minute") || msgLower.includes("rate limit")) {
+                // 🆕 proj-1 风格：优先检查 rate limit 关键词
+                if (msgLower.includes("per minute") || msgLower.includes("rate limit") || msgLower.includes("too many requests")) {
                     return "rate_limit_exceeded"
                 }
+            }
+
+            // 🆕 RESOURCE_EXHAUSTED 状态但没有明确的 QUOTA_EXHAUSTED detail
+            // 默认假设是速率限制而非配额耗尽
+            const status = json?.error?.status
+            if (status === "RESOURCE_EXHAUSTED") {
+                return "rate_limit_exceeded"
             }
         } catch {
             // ignore JSON parse errors
@@ -53,14 +71,20 @@ function parseRateLimitReason(statusCode: number, errorText: string): RateLimitR
     }
 
     const lower = errorText.toLowerCase()
+    // 🆕 proj-1 风格：优先检查 rate limit 关键词
     if (lower.includes("per minute") || lower.includes("rate limit") || lower.includes("too many requests")) {
         return "rate_limit_exceeded"
     }
     if (lower.includes("model_capacity") || lower.includes("capacity")) {
         return "model_capacity_exhausted"
     }
-    if (lower.includes("exhausted") || lower.includes("quota")) {
+    // 只有明确包含 "quota" 关键词时才认为是配额耗尽
+    if (lower.includes("quota")) {
         return "quota_exhausted"
+    }
+    // 🆕 "exhausted" without "quota" = assume rate limit (short-lived)
+    if (lower.includes("exhausted")) {
+        return "rate_limit_exceeded"
     }
     return "unknown"
 }
@@ -87,7 +111,6 @@ function defaultRateLimitMs(reason: RateLimitReason, failures: number): number {
         }
         case "rate_limit_exceeded":
             // 速率限制：通常是短暂的，使用较短的默认值（30秒）
-            consola.debug("检测到速率限制 (RATE_LIMIT_EXCEEDED)，使用默认值 30秒")
             return 30_000
         case "model_capacity_exhausted":
             // 模型容量耗尽：服务端暂时无可用 GPU 实例
@@ -100,7 +123,6 @@ function defaultRateLimitMs(reason: RateLimitReason, failures: number): number {
             return 20_000
         default:
             // 未知原因：使用中等默认值（60秒）
-            consola.debug("无法解析 429 限流原因，使用默认值 60秒")
             return 60_000
     }
 }
@@ -126,6 +148,8 @@ class AccountManager {
     private loaded = false
     // 🆕 60秒账号锁定：记录最近使用的账号（匹配 proj-1 的 last_used_account）
     private lastUsedAccount: { accountId: string; timestamp: number } | null = null
+    // 🆕 粘性账户队列：失败的账户移到队尾，避免反复 429
+    private accountQueue: string[] = []
 
     constructor() {
         const homeDir = process.env.HOME || process.env.USERPROFILE || "."
@@ -208,6 +232,9 @@ class AccountManager {
             })
         }
 
+        // 🆕 确保干净启动：清除上次使用的账号记录
+        this.lastUsedAccount = null
+
         this.loaded = true
     }
 
@@ -243,6 +270,10 @@ class AccountManager {
             rateLimitedUntil: null,
             consecutiveFailures: 0,
         })
+        // 🆕 添加到队列末尾
+        if (!this.accountQueue.includes(account.id)) {
+            this.accountQueue.push(account.id)
+        }
         this.save()
         authStore.saveAccount({
             id: account.id,
@@ -260,12 +291,18 @@ class AccountManager {
      * 删除账号
      */
     removeAccount(accountIdOrEmail: string): boolean {
+        // 🆕 从队列中移除的辅助函数
+        const removeFromQueue = (id: string) => {
+            const idx = this.accountQueue.indexOf(id)
+            if (idx !== -1) this.accountQueue.splice(idx, 1)
+        }
+
         // 先尝试按 ID 删除
         if (this.accounts.has(accountIdOrEmail)) {
             this.accounts.delete(accountIdOrEmail)
+            removeFromQueue(accountIdOrEmail)
             this.save()
             authStore.deleteAccount("antigravity", accountIdOrEmail)
-            consola.info(`Account removed: ${accountIdOrEmail}`)
             return true
         }
 
@@ -273,9 +310,9 @@ class AccountManager {
         for (const [id, acc] of this.accounts) {
             if (acc.email === accountIdOrEmail) {
                 this.accounts.delete(id)
+                removeFromQueue(id)
                 this.save()
                 authStore.deleteAccount("antigravity", id)
-                consola.info(`Account removed by email: ${accountIdOrEmail}`)
                 return true
             }
         }
@@ -289,6 +326,14 @@ class AccountManager {
      */
     count(): number {
         return this.accounts.size
+    }
+
+    /**
+     * 🆕 检查账号是否存在
+     */
+    hasAccount(accountId: string): boolean {
+        this.ensureLoaded()
+        return this.accounts.has(accountId)
     }
 
     /**
@@ -339,8 +384,7 @@ class AccountManager {
         } else if (statusCode === 429) {
             // 没有明确延迟的 429 = 假设是速率限制，应用短暂退避
             // 不调用 fetchAntigravityModels 避免消耗速率限制
-            consola.info(`Account ${account.email} got 429 without retry-after, assuming rate limit`)
-            durationMs = 5000 // 5 秒短暂退避
+            durationMs = 10000 // 10 秒短暂退避（增加以避免快速重试）
             rateLimitedUntil = Date.now() + durationMs
             return { reason: "rate_limit_exceeded" as RateLimitReason, durationMs }
         }
@@ -369,8 +413,76 @@ class AccountManager {
     }
 
     /**
+     * 检查账号是否被限流
+     */
+    isAccountRateLimited(accountId: string): boolean {
+        const account = this.accounts.get(accountId)
+        if (!account) return false
+        return account.rateLimitedUntil !== null && account.rateLimitedUntil > Date.now()
+    }
+
+    /**
+     * 🆕 将失败的账户移到队尾（粘性账户策略）
+     * 这样下次会优先使用队首的账户
+     */
+    moveToEndOfQueue(accountId: string): void {
+        const index = this.accountQueue.indexOf(accountId)
+        if (index !== -1) {
+            this.accountQueue.splice(index, 1)
+            this.accountQueue.push(accountId)
+        }
+    }
+
+    /**
+     * 🆕 确保账户队列已初始化
+     */
+    private ensureQueueInitialized(): void {
+        if (this.accountQueue.length === 0 && this.accounts.size > 0) {
+            this.accountQueue = Array.from(this.accounts.keys())
+        }
+    }
+
+    /**
+     * 🆕 乐观重置：清除所有账户的限流状态
+     * 用于当所有账户都被限流但等待时间很短时，解决时序竞争条件
+     */
+    clearAllRateLimits(): void {
+        let count = 0
+        for (const account of this.accounts.values()) {
+            if (account.rateLimitedUntil !== null) {
+                account.rateLimitedUntil = null
+                account.consecutiveFailures = 0
+                count++
+            }
+        }
+        if (count > 0) {
+            consola.warn(`🔄 Optimistic reset: Cleared rate limits for ${count} account(s)`)
+        }
+    }
+
+    /**
+     * 🆕 获取所有账户中最短的限流等待时间（毫秒）
+     * 返回 null 表示没有账户被限流
+     */
+    getMinRateLimitWait(): number | null {
+        const now = Date.now()
+        let minWait: number | null = null
+
+        for (const account of this.accounts.values()) {
+            if (account.rateLimitedUntil !== null && account.rateLimitedUntil > now) {
+                const wait = account.rateLimitedUntil - now
+                if (minWait === null || wait < minWait) {
+                    minWait = wait
+                }
+            }
+        }
+
+        return minWait
+    }
+
+    /**
      * 获取下一个可用账号
-     * 跳过当前被限流的账号
+     * 🆕 粘性策略：使用队列顺序，队首优先
      */
     async getNextAvailableAccount(forceRotate: boolean = false): Promise<{
         accessToken: string
@@ -382,58 +494,49 @@ class AccountManager {
         if (this.accounts.size === 0) {
             this.hydrateFromAuthStore()
         }
-        const now = Date.now()
-        const accountList = Array.from(this.accounts.values())
+        this.ensureQueueInitialized()
 
-        if (accountList.length === 0) {
+        const now = Date.now()
+
+        if (this.accounts.size === 0) {
             return null
         }
 
-        // 🆕 60秒窗口锁定：优先复用最近使用的账号（匹配 proj-1 的设计）
-        // 这避免了频繁切换账号导致的 429 错误
-        if (!forceRotate && this.lastUsedAccount) {
-            const { accountId, timestamp } = this.lastUsedAccount
-            const elapsedMs = now - timestamp
-            if (elapsedMs < 60_000) {
-                const lastAccount = this.accounts.get(accountId)
-                if (lastAccount && (!lastAccount.rateLimitedUntil || lastAccount.rateLimitedUntil <= now)) {
-                    consola.debug(`🔒 60s Window: Reusing account ${lastAccount.email} (${Math.round(elapsedMs / 1000)}s ago)`)
-                    // 刷新 token 如果需要
-                    if (lastAccount.expiresAt > 0 && now > lastAccount.expiresAt - 5 * 60 * 1000) {
-                        try {
-                            const tokens = await refreshAccessToken(lastAccount.refreshToken)
-                            lastAccount.accessToken = tokens.accessToken
-                            lastAccount.expiresAt = now + tokens.expiresIn * 1000
-                            this.save()
-                        } catch (e) {
-                            consola.warn(`Failed to refresh token for ${lastAccount.email}:`, e)
-                            // 继续使用可能过期的 token，让后续请求处理错误
-                        }
+        // 🆕 粘性策略：使用队列顺序，队首账户优先
+        // 如果不是强制轮换，且队首账户可用，则使用它
+        if (!forceRotate && this.accountQueue.length > 0) {
+            const firstId = this.accountQueue[0]
+            const firstAccount = this.accounts.get(firstId)
+            if (firstAccount && (!firstAccount.rateLimitedUntil || firstAccount.rateLimitedUntil <= now)) {
+                // 刷新 token 如果需要
+                if (firstAccount.expiresAt > 0 && now > firstAccount.expiresAt - 5 * 60 * 1000) {
+                    try {
+                        const tokens = await refreshAccessToken(firstAccount.refreshToken)
+                        firstAccount.accessToken = tokens.accessToken
+                        firstAccount.expiresAt = now + tokens.expiresIn * 1000
+                        this.save()
+                    } catch (e) {
+                        consola.warn(`Failed to refresh token for ${firstAccount.email}:`, e)
                     }
-                    return {
-                        accessToken: lastAccount.accessToken,
-                        projectId: await this.ensureProjectId(lastAccount),
-                        email: lastAccount.email,
-                        accountId: lastAccount.id,
-                    }
+                }
+                this.lastUsedAccount = { accountId: firstAccount.id, timestamp: now }
+                return {
+                    accessToken: firstAccount.accessToken,
+                    projectId: await this.ensureProjectId(firstAccount),
+                    email: firstAccount.email,
+                    accountId: firstAccount.id,
                 }
             }
         }
 
-        // 找到第一个可用账号
-        let attempts = 0
-        while (attempts < accountList.length) {
-            if (forceRotate || attempts > 0) {
-                this.currentIndex = (this.currentIndex + 1) % accountList.length
-            }
-
-            const account = accountList[this.currentIndex]
+        // 按队列顺序找第一个可用账户
+        for (const accountId of this.accountQueue) {
+            const account = this.accounts.get(accountId)
+            if (!account) continue
 
             // 检查是否被限流
             if (account.rateLimitedUntil && account.rateLimitedUntil > now) {
                 const waitSeconds = Math.ceil((account.rateLimitedUntil - now) / 1000)
-                consola.debug(`Account ${account.email} is rate limited for ${waitSeconds}s more, trying next...`)
-                attempts++
                 continue
             }
 
@@ -460,16 +563,14 @@ class AccountManager {
                         projectId: account.projectId || undefined,
                         label: account.email,
                     })
-                    consola.success(`Refreshed token for ${account.email}`)
                 } catch (e) {
                     consola.warn(`Failed to refresh token for ${account.email}:`, e)
                     account.rateLimitedUntil = now + 60000 // 标记为暂时不可用
-                    attempts++
                     continue
                 }
             }
 
-            // 🆕 更新 lastUsedAccount（60秒锁定机制）
+            // 🆕 更新 lastUsedAccount
             this.lastUsedAccount = { accountId: account.id, timestamp: Date.now() }
 
             return {
@@ -480,10 +581,11 @@ class AccountManager {
             }
         }
 
-        // 所有账号都被限流
-        let bestAccount = accountList[0]
+        // 所有账号都被限流 - 找等待时间最短的
+        const allAccounts = Array.from(this.accounts.values())
+        let bestAccount = allAccounts[0]
         let minWaitMs: number | null = null
-        for (const acc of accountList) {
+        for (const acc of allAccounts) {
             if (!acc.rateLimitedUntil) {
                 bestAccount = acc
                 minWaitMs = 0
@@ -497,10 +599,10 @@ class AccountManager {
         }
 
         if (minWaitMs !== null && minWaitMs <= 2000) {
-            // 🔄 乐观重置：等待时间很短时，清除所有限流记录以解决时序竞争条件
+            // 🔄 乐观重置：等待时间很短时，清除所有限流记录
             consola.warn(`All accounts rate limited, waiting ${Math.ceil(minWaitMs / 1000)}s for sync...`)
             await new Promise(resolve => setTimeout(resolve, 500))
-            const refreshed = accountList.find(acc => !acc.rateLimitedUntil || acc.rateLimitedUntil <= Date.now())
+            const refreshed = allAccounts.find(acc => !acc.rateLimitedUntil || acc.rateLimitedUntil <= Date.now())
             if (refreshed) {
                 return {
                     accessToken: refreshed.accessToken,
@@ -510,8 +612,8 @@ class AccountManager {
                 }
             }
             // 乐观重置：清除所有限流记录
-            consola.warn(`🔄 Optimistic reset: Clearing all ${accountList.length} rate limit record(s)`)
-            for (const acc of accountList) {
+            consola.warn(`🔄 Optimistic reset: Clearing all ${allAccounts.length} rate limit record(s)`)
+            for (const acc of allAccounts) {
                 acc.rateLimitedUntil = null
                 acc.consecutiveFailures = 0
             }
@@ -523,54 +625,7 @@ class AccountManager {
             }
         }
 
-        if (minWaitMs !== null && minWaitMs > 2000) {
-            consola.warn(`All accounts rate limited, min wait ${Math.ceil(minWaitMs / 1000)}s`)
-
-            // 🆕 实时配额验证：检查配额是否实际上已经恢复
-            // 当锁定时间很长时，尝试实时获取配额来验证账号是否真的不可用
-            consola.info(`Attempting real-time quota validation for ${accountList.length} locked account(s)...`)
-
-            for (const acc of accountList) {
-                try {
-                    const result = await fetchAntigravityModels(acc.accessToken, acc.projectId)
-                    const resetTime = pickResetTime(result.models)
-
-                    // 检查是否有模型配额可用 (remainingFraction > 0)
-                    const hasAvailableQuota = Object.values(result.models).some(
-                        model => (model.remainingFraction ?? 0) > 0
-                    )
-
-                    if (hasAvailableQuota) {
-                        consola.success(`✅ Account ${acc.email} has available quota! Clearing rate limit.`)
-                        acc.rateLimitedUntil = null
-                        acc.consecutiveFailures = 0
-                        return {
-                            accessToken: acc.accessToken,
-                            projectId: await this.ensureProjectId(acc),
-                            email: acc.email,
-                            accountId: acc.id,
-                        }
-                    }
-
-                    // 更新锁定时间为最新的 reset time
-                    if (resetTime) {
-                        const resetMs = Date.parse(resetTime)
-                        if (Number.isFinite(resetMs)) {
-                            const newLockTime = resetMs + RESET_TIME_BUFFER_MS
-                            if (newLockTime !== acc.rateLimitedUntil) {
-                                consola.info(`Account ${acc.email} reset time updated: ${resetTime}`)
-                                acc.rateLimitedUntil = newLockTime
-                            }
-                        }
-                    }
-                } catch (error) {
-                    consola.debug(`Failed to validate quota for ${acc.email}:`, error)
-                }
-            }
-
-            return null
-        }
-
+        consola.warn(`All accounts rate limited, min wait ${Math.ceil(minWaitMs || 0 / 1000)}s`)
         return null
     }
 
@@ -615,7 +670,6 @@ class AccountManager {
                     projectId: account.projectId || undefined,
                     label: account.email,
                 })
-                consola.success(`Refreshed token for ${account.email}`)
             } catch (e) {
                 consola.warn(`Failed to refresh token for ${account.email}:`, e)
                 account.rateLimitedUntil = now + 60000

@@ -13,27 +13,13 @@ echo -e "${ORANGE} ██╔══██║██║╚██╗██║   █�
 echo -e "${ORANGE} ██║  ██║██║ ╚████║   ██║   ██║        ██║  ██║██║     ██║${NC}"
 echo -e "${ORANGE} ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝        ╚═╝  ╚═╝╚═╝     ╚═╝${NC}"
 echo ""
-echo "================================"
-echo ""
 
 PORT=8964
 RUST_PROXY_PORT=8965
 
-echo "端口: $PORT"
-echo "Rust Proxy 端口: $RUST_PROXY_PORT"
-
-# 检查端口占用
-if lsof -i :$PORT > /dev/null 2>&1; then
-    echo "端口被占用."
-    lsof -ti :$PORT | xargs kill -9 2>/dev/null
-    echo "端口已释放."
-fi
-
-if lsof -i :$RUST_PROXY_PORT > /dev/null 2>&1; then
-    echo "Rust Proxy 端口被占用."
-    lsof -ti :$RUST_PROXY_PORT | xargs kill -9 2>/dev/null
-    echo "Rust Proxy 端口已释放."
-fi
+# 静默释放端口
+lsof -ti :$PORT | xargs kill -9 2>/dev/null
+lsof -ti :$RUST_PROXY_PORT | xargs kill -9 2>/dev/null
 
 # 加载 bun 路径（如果已安装）
 export BUN_INSTALL="$HOME/.bun"
@@ -51,25 +37,19 @@ if [ ! -d "node_modules" ]; then
     bun install --silent
 fi
 
-echo ""
-echo "================================"
-echo ""
-
-# 🦀 启动 Rust Proxy
+# 🦀 启动 Rust Proxy (静默)
 RUST_PROXY_BIN="./rust-proxy/target/release/anti-proxy"
-if [ -f "$RUST_PROXY_BIN" ]; then
-    echo "🦀 启动 Rust Proxy..."
-    $RUST_PROXY_BIN &
-    RUST_PID=$!
-    sleep 1
-    echo "🦀 Rust Proxy 已启动 (PID: $RUST_PID)"
-else
-    echo "⚠️ Rust Proxy 未编译，使用 TypeScript 模式"
+if [ ! -f "$RUST_PROXY_BIN" ]; then
+    if command -v cargo &> /dev/null; then
+        cargo build --release --manifest-path rust-proxy/Cargo.toml 2>/dev/null
+    fi
 fi
 
-echo ""
-echo "================================"
-echo ""
+if [ -f "$RUST_PROXY_BIN" ]; then
+    $RUST_PROXY_BIN >/dev/null 2>&1 &
+    RUST_PID=$!
+    sleep 1
+fi
 
 # 启动 TypeScript 服务器
 bun run src/main.ts start

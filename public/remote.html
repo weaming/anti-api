@@ -5,6 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anti-API Remote Dashboard</title>
+    <link rel="icon"
+        href="https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://antigravity.google&size=32"
+        type="image/x-icon">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -46,9 +49,8 @@
         .card-inner {
             transform-style: preserve-3d;
             transition: box-shadow 0.3s ease, background 0.3s ease, border-color 0.3s ease;
-            background: rgba(17, 17, 17, 0.9);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(59, 42, 84, 0.3);
+            background: transparent;
+            border: 1px solid rgba(55, 65, 81, 0.5);
         }
 
         /* ngrok - 蓝紫色光晕 */
@@ -162,136 +164,72 @@
             border: 1px solid rgba(239, 68, 68, 0.5);
         }
     </style>
+    <style id="iframe-styles">
+        /* Iframe embed mode styles - match parent page background */
+        body.iframe-mode {
+            padding: 0 !important;
+            background: #000000 !important;
+        }
+
+        body.iframe-mode .main-container {
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 8px !important;
+        }
+
+        body.iframe-mode #remote-footer {
+            display: none !important;
+        }
+    </style>
 </head>
 
 <body class="min-h-screen p-6">
+    <script>
+        // Immediately detect iframe before DOM renders
+        if (window.self !== window.top) {
+            document.body.classList.add('iframe-mode');
+        }
+    </script>
     <!-- Main Content -->
-    <div class="max-w-7xl mx-auto">
+    <div class="max-w-7xl mx-auto main-container">
         <!-- Header -->
-        <div class="mb-6">
-            <h1 class="text-3xl font-bold text-gray-300">Anti-API Remote Dashboard</h1>
-            <p id="plan-info" class="text-gray-500 text-sm font-bold mt-1">Loading...</p>
+        <div class="mb-6 remote-header">
+            <h1 class="text-3xl font-bold text-gray-300">Remote</h1>
+            <p class="text-gray-500 text-sm font-bold mt-1">Expose anti-api to external devices via ngrok tunnel</p>
         </div>
 
-        <!-- Usage Instructions -->
-        <div class="mb-6 p-4 rounded-xl instructions-box"
-            style="background: rgba(30, 30, 30, 0.6); border: 1px solid rgba(255, 255, 255, 0.1);">
-            <p class="text-gray-400 text-sm mb-2">1. This feature is currently in beta. After one-click startup, you can
-                use the <a href="https://github.com/ink1ing/anti-api" target="_blank"
-                    class="text-blue-400 underline">anti-api</a> service on any other device without being limited to
-                this computer.</p>
-            <p class="text-gray-400 text-sm mb-2">2. Please prioritize ngrok, as this service is the most stable, but
-                requires <a href="https://ngrok.com/signup" target="_blank" class="text-blue-400 underline">free
-                    registration</a> on first use. After registration, obtain your Authtoken, fill it in, and click
-                start for one-click startup.</p>
-            <p class="text-gray-400 text-sm mb-2">3. cloudflared has
-                strict network requirements and is unavailable in Tun mode. Click to learn: <a
-                    href="https://x.com/Ink_thesilent/status/2004594050239004815" target="_blank"
-                    class="text-blue-400 underline">How to use antigravity with Tun disabled</a>.</p>
-            <p class="text-gray-400 text-sm mb-2">4. localtunnel is inherently
-                unstable and should only be used as a backup option. The value obtained from clicking getip can be
-                filled in the subdomain field.</p>
-            <p class="text-gray-400 text-sm">5. If you are unable to start, please go to the <a
-                    href="https://github.com/ink1ing/anti-api/issues" target="_blank"
-                    class="text-blue-400 underline">GitHub repository</a> and submit detailed issues. Thank you for your
-                feedback!</p>
-        </div>
-
-        <!-- Tunnel Cards - 横向排列 -->
-        <div class="grid grid-cols-3 gap-4">
-            <!-- ngrok Card - 第一位（最推荐）-->
-            <div class="card-3d h-full" data-type="ngrok">
-                <div class="card-inner rounded-xl p-4 h-full" id="ngrok-card">
-                    <p class="text-white text-lg font-bold mb-2">ngrok</p>
-                    <input type="text" id="ngrok-authtoken" placeholder="Authtoken"
-                        class="w-full px-2 py-1 rounded text-white text-xs mb-3"
-                        style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
-                    <div class="flex gap-2 mb-3">
-                        <div class="refresh-btn">
-                            <button id="ngrok-start" onclick="startTunnel('ngrok')"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs">
-                                Start
-                            </button>
-                        </div>
-                        <div class="refresh-btn">
-                            <button id="ngrok-stop" onclick="stopTunnel('ngrok')"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs" disabled>
-                                Stop
-                            </button>
-                        </div>
-                        <div class="refresh-btn">
-                            <button id="ngrok-copy" onclick="copyUrl('ngrok')"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs" disabled>
-                                Copy
-                            </button>
-                        </div>
-                    </div>
-                    <div id="ngrok-status" class="text-xs text-gray-500 truncate">Not started</div>
+        <!-- ngrok Card - Simplified -->
+        <div class="card-3d" data-type="ngrok">
+            <div class="card-inner rounded-xl p-6" id="ngrok-card">
+                <!-- Token Input Row -->
+                <div class="flex items-center gap-3 mb-6">
+                    <input type="text" id="ngrok-authtoken" placeholder="Enter ngrok authtoken"
+                        class="flex-1 px-4 py-2.5 rounded-lg text-white text-sm"
+                        style="background: rgba(255,255,255,0.08); border: 1px solid rgba(55, 65, 81, 0.5);">
+                    <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank"
+                        class="text-cyan-400 text-sm font-medium hover:text-cyan-300 whitespace-nowrap">
+                        Get Token →
+                    </a>
                 </div>
-            </div>
 
-            <!-- Cloudflared Card - 第二位 -->
-            <div class="card-3d h-full" data-type="cloudflared">
-                <div class="card-inner rounded-xl p-4 h-full" id="cloudflared-card">
-                    <p class="text-white text-lg font-bold mb-3">cloudflared</p>
-                    <div class="flex gap-2 mb-3">
-                        <div class="refresh-btn">
-                            <button id="cloudflared-start" onclick="startTunnel('cloudflared')"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs">
-                                Start
-                            </button>
-                        </div>
-                        <div class="refresh-btn">
-                            <button id="cloudflared-stop" onclick="stopTunnel('cloudflared')"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs" disabled>
-                                Stop
-                            </button>
-                        </div>
-                        <div class="refresh-btn">
-                            <button id="cloudflared-copy" onclick="copyUrl('cloudflared')"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs" disabled>
-                                Copy
-                            </button>
-                        </div>
+                <!-- Toggle Button -->
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="refresh-btn">
+                        <button id="ngrok-toggle" onclick="toggleTunnel()"
+                            class="px-6 py-2.5 rounded-lg font-bold text-gray-200 text-sm min-w-[100px]">
+                            Start
+                        </button>
                     </div>
-                    <div id="cloudflared-status" class="text-xs text-gray-500 truncate">Not started</div>
+                    <span id="ngrok-status-text" class="text-sm text-gray-500">Not connected</span>
                 </div>
-            </div>
 
-            <!-- localtunnel Card -->
-            <div class="card-3d h-full" data-type="localtunnel">
-                <div class="card-inner rounded-xl p-4 h-full" id="localtunnel-card">
-                    <p class="text-white text-lg font-bold mb-2">localtunnel</p>
-                    <input type="text" id="localtunnel-subdomain" placeholder="Subdomain (optional)"
-                        class="w-full px-2 py-1 rounded text-white text-xs mb-3"
-                        style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
-                    <div class="flex gap-2 mb-3">
-                        <div class="refresh-btn">
-                            <button id="localtunnel-start" onclick="startTunnel('localtunnel')"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs">
-                                Start
-                            </button>
-                        </div>
-                        <div class="refresh-btn">
-                            <button id="localtunnel-getip" onclick="getPublicIP()"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs">
-                                GetIP
-                            </button>
-                        </div>
-                        <div class="refresh-btn">
-                            <button id="localtunnel-stop" onclick="stopTunnel('localtunnel')"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs" disabled>
-                                Stop
-                            </button>
-                        </div>
-                        <div class="refresh-btn">
-                            <button id="localtunnel-copy" onclick="copyUrl('localtunnel')"
-                                class="px-3 py-1.5 rounded-lg font-bold text-gray-300 text-xs" disabled>
-                                Copy
-                            </button>
-                        </div>
+                <!-- URL Display - Large and Clickable -->
+                <div id="ngrok-url-container" class="hidden">
+                    <div class="text-xs text-gray-500 mb-2">Click to copy URL:</div>
+                    <div id="ngrok-url" onclick="copyNgrokUrl()"
+                        class="p-4 rounded-xl text-lg font-mono text-cyan-400 cursor-pointer hover:bg-gray-800/50 transition-colors truncate"
+                        style="background: rgba(0,0,0,0.3); border: 1px solid rgba(34, 211, 238, 0.3);">
                     </div>
-                    <div id="localtunnel-status" class="text-xs text-gray-500 truncate">Not started</div>
                 </div>
             </div>
         </div>
@@ -302,7 +240,8 @@
 
     <script>
         const API_BASE = 'http://localhost:8964';
-        const tunnelUrls = { cloudflared: null, ngrok: null, localtunnel: null };
+        let ngrokUrl = null;
+        let isRunning = false;
 
         function showToast(message, isError = false) {
             const container = document.getElementById('toast-container');
@@ -317,38 +256,27 @@
             }, 3000);
         }
 
-        async function getPublicIP() {
-            try {
-                const res = await fetch(`${API_BASE}/remote/public-ip`);
-                const data = await res.json();
-                showToast(`Your public IP: ${data.ip}`);
-            } catch (error) {
-                showToast('Failed to get IP', true);
+        async function toggleTunnel() {
+            if (isRunning) {
+                await stopNgrok();
+            } else {
+                await startNgrok();
             }
         }
 
-        async function startTunnel(type) {
-            const startBtn = document.getElementById(`${type}-start`);
-            const stopBtn = document.getElementById(`${type}-stop`);
-            const copyBtn = document.getElementById(`${type}-copy`);
-            const statusDiv = document.getElementById(`${type}-status`);
-            const card = document.querySelector(`.card-3d[data-type="${type}"]`);
+        async function startNgrok() {
+            const toggleBtn = document.getElementById('ngrok-toggle');
+            const statusText = document.getElementById('ngrok-status-text');
+            const card = document.querySelector('.card-3d[data-type="ngrok"]');
 
-            startBtn.disabled = true;
-            statusDiv.textContent = 'Starting...';
+            toggleBtn.disabled = true;
+            statusText.textContent = 'Starting...';
 
             try {
-                const body = {};
-                if (type === 'ngrok') {
-                    const authtoken = document.getElementById('ngrok-authtoken').value.trim();
-                    if (authtoken) body.authtoken = authtoken;
-                }
-                if (type === 'localtunnel') {
-                    const subdomain = document.getElementById('localtunnel-subdomain').value.trim();
-                    if (subdomain) body.subdomain = subdomain;
-                }
+                const authtoken = document.getElementById('ngrok-authtoken').value.trim();
+                const body = authtoken ? { authtoken } : {};
 
-                const res = await fetch(`${API_BASE}/remote/${type}/start`, {
+                const res = await fetch(`${API_BASE}/remote/ngrok/start`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
@@ -357,55 +285,63 @@
                 const data = await res.json();
 
                 if (data.active && data.url) {
-                    tunnelUrls[type] = data.url;
-                    statusDiv.textContent = `✓ ${data.url}`;
+                    ngrokUrl = data.url;
+                    isRunning = true;
+                    toggleBtn.textContent = 'Stop';
+                    toggleBtn.disabled = false;
+                    statusText.textContent = 'Connected';
                     card.classList.add('active');
-                    stopBtn.disabled = false;
-                    copyBtn.disabled = false;
-                    showToast(`${type} started`);
+
+                    // Show URL
+                    document.getElementById('ngrok-url').textContent = data.url;
+                    document.getElementById('ngrok-url-container').classList.remove('hidden');
+
+                    showToast('ngrok started successfully');
                 } else if (data.active && !data.url) {
-                    statusDiv.textContent = 'Starting, waiting for URL...';
+                    statusText.textContent = 'Starting, waiting for URL...';
                     setTimeout(() => refreshStatus(), 2000);
                 } else {
-                    statusDiv.textContent = `✗ ${data.error || 'Failed to start'}`;
-                    startBtn.disabled = false;
+                    statusText.textContent = data.error || 'Failed to start';
+                    toggleBtn.disabled = false;
                     showToast(data.error || 'Failed to start', true);
                 }
             } catch (error) {
-                statusDiv.textContent = `✗ ${error.message}`;
-                startBtn.disabled = false;
+                statusText.textContent = error.message;
+                toggleBtn.disabled = false;
                 showToast(error.message, true);
             }
         }
 
-        async function stopTunnel(type) {
-            const startBtn = document.getElementById(`${type}-start`);
-            const stopBtn = document.getElementById(`${type}-stop`);
-            const copyBtn = document.getElementById(`${type}-copy`);
-            const statusDiv = document.getElementById(`${type}-status`);
-            const card = document.querySelector(`.card-3d[data-type="${type}"]`);
+        async function stopNgrok() {
+            const toggleBtn = document.getElementById('ngrok-toggle');
+            const statusText = document.getElementById('ngrok-status-text');
+            const card = document.querySelector('.card-3d[data-type="ngrok"]');
 
             try {
-                await fetch(`${API_BASE}/remote/${type}/stop`, { method: 'POST' });
-                tunnelUrls[type] = null;
-                statusDiv.textContent = 'Not started';
+                await fetch(`${API_BASE}/remote/ngrok/stop`, { method: 'POST' });
+
+                ngrokUrl = null;
+                isRunning = false;
+                toggleBtn.textContent = 'Start';
+                statusText.textContent = 'Not connected';
                 card.classList.remove('active');
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
-                copyBtn.disabled = true;
+
+                // Hide URL
+                document.getElementById('ngrok-url-container').classList.add('hidden');
+
+                showToast('ngrok stopped');
             } catch (error) {
                 showToast(error.message, true);
             }
         }
 
-        async function copyUrl(type) {
-            const url = tunnelUrls[type];
-            if (!url) {
+        async function copyNgrokUrl() {
+            if (!ngrokUrl) {
                 showToast('No URL to copy', true);
                 return;
             }
             try {
-                await navigator.clipboard.writeText(url);
+                await navigator.clipboard.writeText(ngrokUrl);
                 showToast('URL copied to clipboard');
             } catch (error) {
                 showToast('Copy failed', true);
@@ -416,32 +352,36 @@
             try {
                 const res = await fetch(`${API_BASE}/remote/status`);
                 const data = await res.json();
+                const status = data.ngrok;
 
-                for (const [type, status] of Object.entries(data)) {
-                    const startBtn = document.getElementById(`${type}-start`);
-                    const stopBtn = document.getElementById(`${type}-stop`);
-                    const copyBtn = document.getElementById(`${type}-copy`);
-                    const statusDiv = document.getElementById(`${type}-status`);
-                    const card = document.querySelector(`.card-3d[data-type="${type}"]`);
+                if (!status) return;
 
-                    if (status.active && status.url) {
-                        tunnelUrls[type] = status.url;
-                        statusDiv.textContent = `✓ ${status.url}`;
-                        card.classList.add('active');
-                        startBtn.disabled = true;
-                        stopBtn.disabled = false;
-                        copyBtn.disabled = false;
-                    } else if (status.active && !status.url) {
-                        statusDiv.textContent = 'Starting, waiting for URL...';
-                        startBtn.disabled = true;
-                    } else {
-                        tunnelUrls[type] = null;
-                        statusDiv.textContent = 'Not started';
-                        card.classList.remove('active');
-                        startBtn.disabled = false;
-                        stopBtn.disabled = true;
-                        copyBtn.disabled = true;
-                    }
+                const toggleBtn = document.getElementById('ngrok-toggle');
+                const statusText = document.getElementById('ngrok-status-text');
+                const card = document.querySelector('.card-3d[data-type="ngrok"]');
+
+                if (status.active && status.url) {
+                    ngrokUrl = status.url;
+                    isRunning = true;
+                    toggleBtn.textContent = 'Stop';
+                    toggleBtn.disabled = false;
+                    statusText.textContent = 'Connected';
+                    card.classList.add('active');
+
+                    document.getElementById('ngrok-url').textContent = status.url;
+                    document.getElementById('ngrok-url-container').classList.remove('hidden');
+                } else if (status.active && !status.url) {
+                    statusText.textContent = 'Starting, waiting for URL...';
+                    toggleBtn.disabled = true;
+                } else {
+                    ngrokUrl = null;
+                    isRunning = false;
+                    toggleBtn.textContent = 'Start';
+                    toggleBtn.disabled = false;
+                    statusText.textContent = 'Not connected';
+                    card.classList.remove('active');
+
+                    document.getElementById('ngrok-url-container').classList.add('hidden');
                 }
             } catch (error) {
                 console.error('Failed to refresh status:', error);
@@ -455,17 +395,12 @@
                 if (data.ngrokAuthtoken) {
                     document.getElementById('ngrok-authtoken').value = data.ngrokAuthtoken;
                 }
-                if (data.localtunnelSubdomain) {
-                    document.getElementById('localtunnel-subdomain').value = data.localtunnelSubdomain;
-                }
             } catch (error) {
                 console.error('Failed to load config:', error);
             }
         }
 
         function init3DEffect() {
-            // 卡片效果 - 与 quota.html 完全一致
-            // 使用 hover class 而不是 active，避免与隧道运行状态冲突
             document.querySelectorAll('.card-3d').forEach(card => {
                 const inner = card.querySelector('.card-inner');
                 if (!inner) return;
@@ -477,7 +412,6 @@
                     const centerX = rect.width / 2;
                     const centerY = rect.height / 2;
 
-                    // 计算旋转角度 (最大 15 度)
                     const rotateX = ((y - centerY) / centerY) * -15;
                     const rotateY = ((x - centerX) / centerX) * 15;
 
@@ -492,35 +426,24 @@
             });
         }
 
-        // 检查认证状态并更新显示
-        async function checkAuthStatus() {
-            try {
-                const response = await fetch(`${API_BASE}/auth/status`);
-                const data = await response.json();
-                const planInfo = document.getElementById('plan-info');
-
-                if (data.authenticated) {
-                    planInfo.innerHTML = `<span class="text-white">✓ ${data.email || 'Logged in'}</span> <span class="text-gray-600">•</span> <span class="text-white">Pro Plan</span> <span class="text-gray-600">•</span> <span class="text-blue-400">Beta</span>`;
-                } else {
-                    planInfo.innerHTML = `<span class="text-red-400">✗ Not logged in</span>`;
-                }
-            } catch (error) {
-                document.getElementById('plan-info').innerHTML = `<span class="text-gray-500">Connection error</span>`;
-            }
-        }
-
         loadConfig();
         refreshStatus();
-        checkAuthStatus();
         setInterval(refreshStatus, 5000);
-        init3DEffect();
+        // init3DEffect(); // Removed 3D tilt effect
     </script>
 
     <!-- Footer -->
-    <div class="max-w-7xl mx-auto mt-8 text-center">
+    <div class="max-w-7xl mx-auto mt-8 text-center" id="remote-footer">
         <p class="text-gray-600 text-sm">© 2025 Silas · <a href="https://github.com/ink1ing/anti-api" target="_blank"
                 class="text-gray-500 hover:text-gray-400">github.com/ink1ing/anti-api</a></p>
     </div>
+    <script>
+        // Hide footer when embedded
+        if (window.self !== window.top) {
+            const footer = document.getElementById('remote-footer');
+            if (footer) footer.style.display = 'none';
+        }
+    </script>
 </body>
 
 </html>

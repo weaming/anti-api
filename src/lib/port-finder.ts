@@ -90,7 +90,6 @@ export async function getLanguageServerInfo(): Promise<LanguageServerInfo | null
             pid: pid,
         }
 
-        consola.debug(`LS port: ${httpsPort}`)
         return info
 
     } catch (error) {

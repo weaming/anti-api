@@ -16,21 +16,34 @@ import {
     buildStreamChunk,
     mapStopReason,
 } from "./translator"
+import { validateChatRequest } from "~/lib/validation"
+import { rateLimiter } from "~/lib/rate-limiter"
 
 export async function handleChatCompletion(c: Context): Promise<Response> {
-    const payload = await c.req.json<OpenAIChatCompletionRequest>()
-
-    consola.info("OpenAI request - model:", payload.model, "stream:", payload.stream)
-
-    const anthropicModel = mapModel(payload.model)
-    const messages = translateMessages(payload.messages)
-    const tools = translateTools(payload.tools)
-
-    if (payload.stream) {
-        return handleStreamCompletion(c, payload, anthropicModel, messages, tools)
-    }
+    // 🆕 获取全局锁 - 确保请求串行化
+    const releaseLock = await rateLimiter.acquireExclusive()
+    let releaseInFinally = true
 
     try {
+        const payload = await c.req.json<OpenAIChatCompletionRequest>()
+
+        // Input validation
+        const validation = validateChatRequest(payload)
+        if (!validation.valid) {
+            releaseLock()
+            return c.json({ error: { type: "invalid_request_error", message: validation.error } }, 400)
+        }
+
+        const anthropicModel = mapModel(payload.model)
+        const messages = translateMessages(payload.messages)
+        const tools = translateTools(payload.tools)
+
+        if (payload.stream) {
+            const response = await handleStreamCompletion(c, payload, anthropicModel, messages, tools, releaseLock)
+            releaseInFinally = false
+            return response
+        }
+
         const result = await createChatCompletion({
             model: anthropicModel,
             messages,
@@ -58,6 +71,10 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
             }))
         }
 
+        // Token counts for response (Usage recording is handled in chat.ts with actual native model ID)
+        const inputTokens = result.usage?.inputTokens || 0
+        const outputTokens = result.usage?.outputTokens || 0
+
         return c.json({
             id: generateChatId(),
             object: "chat.completion",
@@ -65,14 +82,18 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
             model: payload.model,
             choices: [{ index: 0, message, finish_reason: mapStopReason(result.stopReason || "end_turn") }],
             usage: {
-                prompt_tokens: result.usage?.inputTokens || 0,
-                completion_tokens: result.usage?.outputTokens || 0,
-                total_tokens: (result.usage?.inputTokens || 0) + (result.usage?.outputTokens || 0),
+                prompt_tokens: inputTokens,
+                completion_tokens: outputTokens,
+                total_tokens: inputTokens + outputTokens,
             },
         })
     } catch (error) {
         consola.error("OpenAI completion error:", error)
         return c.json({ error: { message: (error as Error).message, type: "api_error" } }, 500)
+    } finally {
+        if (releaseInFinally) {
+            releaseLock()
+        }
     }
 }
 
@@ -81,7 +102,8 @@ async function handleStreamCompletion(
     payload: OpenAIChatCompletionRequest,
     anthropicModel: string,
     messages: any[],
-    tools?: any[]
+    tools: any[] | undefined,
+    releaseLock: () => void
 ): Promise<Response> {
     const chatId = generateChatId()
 
@@ -97,6 +119,8 @@ async function handleStreamCompletion(
             let sentRole = false
             let accumulatedToolCalls: any[] = []
             let currentToolCall: any = null
+            let streamInputTokens = 0
+            let streamOutputTokens = 0
 
             for await (const event of chatStream) {
                 const lines = event.split("\n")
@@ -114,6 +138,10 @@ async function handleStreamCompletion(
                                 if (!sentRole) {
                                     await stream.writeSSE({ data: buildStreamChunk(chatId, payload.model, undefined, "assistant") })
                                     sentRole = true
+                                }
+                                // Capture input tokens from message_start
+                                if (parsed.message?.usage?.input_tokens) {
+                                    streamInputTokens = parsed.message.usage.input_tokens
                                 }
                                 break
 
@@ -146,6 +174,10 @@ async function handleStreamCompletion(
 
                             case "message_delta":
                                 const stopReason = parsed.delta?.stop_reason || "end_turn"
+                                // Capture output tokens from message_delta
+                                if (parsed.usage?.output_tokens) {
+                                    streamOutputTokens = parsed.usage.output_tokens
+                                }
                                 if (accumulatedToolCalls.length > 0) {
                                     await stream.writeSSE({ data: buildStreamChunk(chatId, payload.model, undefined, undefined, "tool_use", accumulatedToolCalls) })
                                 }
@@ -156,10 +188,15 @@ async function handleStreamCompletion(
                 }
             }
 
+
+            // Note: Usage recording is handled in chat.ts with the actual native model ID
+
             await stream.writeSSE({ data: "[DONE]" })
         } catch (error) {
             consola.error("OpenAI stream error:", error)
             await stream.writeSSE({ data: JSON.stringify({ error: { message: (error as Error).message, type: "api_error" } }) })
+        } finally {
+            releaseLock()
         }
     })
 }

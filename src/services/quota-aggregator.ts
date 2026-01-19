@@ -47,31 +47,45 @@ export async function getAggregatedQuota(): Promise<{
 }
 
 async function fetchAntigravityQuotas(accounts: ProviderAccount[]): Promise<AccountQuotaView[]> {
-    const results: AccountQuotaView[] = []
-    for (const account of accounts) {
-        try {
-            const refreshed = await refreshAntigravityToken(account)
-            const quotaModels = await fetchAntigravityModelsForAccount(refreshed)
-            const bars = buildAntigravityBars(quotaModels)
-            results.push({
-                provider: "antigravity",
-                accountId: account.id,
-                displayName: account.email || account.id,
-                bars,
-            })
-        } catch (error) {
-            if (!isCertificateError(error) && !isAuthError(error)) {
-                consola.warn("Antigravity quota fetch failed:", error)
+    // Fetch all accounts in parallel for faster loading
+    const promises = accounts.map(async (account) => {
+        let lastError: Error | null = null
+
+        // Retry up to 2 times for each account
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const refreshed = await refreshAntigravityToken(account)
+                const quotaModels = await fetchAntigravityModelsForAccount(refreshed)
+                const bars = buildAntigravityBars(quotaModels)
+                return {
+                    provider: "antigravity" as const,
+                    accountId: account.id,
+                    displayName: account.email || account.id,
+                    bars,
+                }
+            } catch (error) {
+                lastError = error as Error
+                if (attempt < 1) {
+                    // Wait 500ms before retry (reduced from 1000ms)
+                    await new Promise(resolve => setTimeout(resolve, 500))
+                }
             }
-            results.push({
-                provider: "antigravity",
-                accountId: account.id,
-                displayName: account.email || account.id,
-                bars: buildAntigravityBars({}),
-            })
         }
-    }
-    return results
+
+        if (lastError) {
+            if (!isCertificateError(lastError) && !isAuthError(lastError)) {
+                consola.warn("Antigravity quota fetch failed:", lastError)
+            }
+        }
+        return {
+            provider: "antigravity" as const,
+            accountId: account.id,
+            displayName: account.email || account.id,
+            bars: buildAntigravityBars({}),
+        }
+    })
+
+    return Promise.all(promises)
 }
 
 async function refreshAntigravityToken(account: ProviderAccount): Promise<ProviderAccount> {
@@ -185,33 +199,33 @@ function earliestResetTime(times: string[]): string | undefined {
 }
 
 async function fetchCodexQuotas(accounts: ProviderAccount[]): Promise<AccountQuotaView[]> {
-    const results: AccountQuotaView[] = []
-    for (const account of accounts) {
+    // Fetch all accounts in parallel for faster loading
+    const promises = accounts.map(async (account) => {
         try {
             const updated = await refreshCodexIfNeeded(account)
             const quota = await fetchCodexUsage(updated)
-            results.push({
-                provider: "codex",
+            return {
+                provider: "codex" as const,
                 accountId: account.id,
                 displayName: account.email || account.id,
                 bars: quota,
-            })
+            }
         } catch (error) {
             if (!isCertificateError(error)) {
                 consola.warn("Codex quota fetch failed:", error)
             }
-            results.push({
-                provider: "codex",
+            return {
+                provider: "codex" as const,
                 accountId: account.id,
                 displayName: account.email || account.id,
                 bars: [
                     { key: "session", label: "5h", percentage: 0 },
                     { key: "week", label: "week", percentage: 0 },
                 ],
-            })
+            }
         }
-    }
-    return results
+    })
+    return Promise.all(promises)
 }
 
 async function refreshCodexIfNeeded(account: ProviderAccount): Promise<ProviderAccount> {
@@ -263,27 +277,27 @@ async function fetchCodexUsage(account: ProviderAccount): Promise<AccountBar[]> 
 }
 
 async function fetchCopilotQuotas(accounts: ProviderAccount[]): Promise<AccountQuotaView[]> {
-    const results: AccountQuotaView[] = []
-    for (const account of accounts) {
+    // Fetch all accounts in parallel for faster loading
+    const promises = accounts.map(async (account) => {
         try {
             const bar = await fetchCopilotPremium(account)
-            results.push({
-                provider: "copilot",
+            return {
+                provider: "copilot" as const,
                 accountId: account.id,
                 displayName: account.login || account.id,
                 bars: [bar],
-            })
+            }
         } catch (error) {
             consola.warn("Copilot quota fetch failed:", error)
-            results.push({
-                provider: "copilot",
+            return {
+                provider: "copilot" as const,
                 accountId: account.id,
                 displayName: account.login || account.id,
                 bars: [{ key: "premium", label: "premium", percentage: 0 }],
-            })
+            }
         }
-    }
-    return results
+    })
+    return Promise.all(promises)
 }
 
 async function fetchCopilotPremium(account: ProviderAccount): Promise<AccountBar> {

@@ -1,4 +1,5 @@
 import consola from "consola"
+import https from "https"
 import { createHash, randomBytes } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs"
 import { join } from "path"
@@ -28,18 +29,26 @@ const codexCliSessions = new Map<string, CodexCliLoginSession>()
 const CODEX_OAUTH_CONFIG = {
     clientId: process.env.CODEX_CLIENT_ID || "app_EMoamEEZ73f0CkXaXp7hrann",
     clientSecret: process.env.CODEX_CLIENT_SECRET || "",
-    authorizeUrl: "https://auth.openai.com/authorize",
+    authorizeUrl: "https://auth.openai.com/oauth/authorize",
     tokenUrl: "https://auth.openai.com/oauth/token",
-    scopes: ["openid", "profile", "email", "offline_access"],
-    audience: "https://api.openai.com/v1",
-    callbackPort: 51222,
+    scopes: ["openid", "email", "profile", "offline_access"],
+    callbackPort: 1455,
+    callbackPath: "/auth/callback",
 }
+
+const refreshLocks = new Map<string, Promise<{ accessToken: string; refreshToken?: string; expiresIn?: number }>>()
 
 type CodexTokens = {
     accessToken: string
     refreshToken?: string
     expiresIn?: number
     idToken?: string
+}
+
+type JsonResponse = {
+    status: number
+    data: any
+    text: string
 }
 
 type CodexCallbackResult = {
@@ -79,6 +88,183 @@ function decodeJwt(token: string): Record<string, any> | null {
 function expandHomePath(value: string): string {
     const homeDir = process.env.HOME || process.env.USERPROFILE || ""
     return value.replace(/^~\//, `${homeDir}/`)
+}
+
+function getErrorCode(error: unknown): string | undefined {
+    if (!error || typeof error !== "object") return undefined
+    const direct = (error as { code?: string }).code
+    const cause = (error as { cause?: { code?: string } }).cause
+    return direct || cause?.code
+}
+
+function getErrorMessage(error: unknown): string {
+    if (!error || typeof error !== "object") return ""
+    const direct = (error as { message?: string }).message
+    const cause = (error as { cause?: { message?: string } }).cause
+    return String(direct || cause?.message || "")
+}
+
+function isCertificateError(error: unknown): boolean {
+    const code = getErrorCode(error)
+    if (code === "UNKNOWN_CERTIFICATE_VERIFICATION_ERROR") return true
+    if (code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") return true
+    if (code === "SELF_SIGNED_CERT_IN_CHAIN") return true
+    if (code === "DEPTH_ZERO_SELF_SIGNED_CERT") return true
+    if (code === "CERT_HAS_EXPIRED") return true
+    const message = getErrorMessage(error).toLowerCase()
+    if (message.includes("certificate") || message.includes("self signed")) return true
+    if (message.includes("unable to verify") || message.includes("ssl") || message.includes("tls")) return true
+    const fallback = String(error).toLowerCase()
+    return fallback.includes("certificate") || fallback.includes("self signed") || fallback.includes("unable to verify")
+}
+
+async function fetchJsonWithFallback(
+    url: string,
+    options: { method?: string; headers?: Record<string, string>; body?: string }
+): Promise<JsonResponse> {
+    try {
+        const bunFetch = (globalThis as { Bun?: { fetch?: typeof fetch } }).Bun?.fetch
+        const tls = process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0"
+            ? { rejectUnauthorized: false }
+            : undefined
+        const response = bunFetch
+            ? await bunFetch(url, {
+                method: options.method,
+                headers: options.headers,
+                body: options.body,
+                ...(tls ? { tls } : {}),
+            })
+            : await fetch(url, {
+                method: options.method,
+                headers: options.headers,
+                body: options.body,
+            })
+        const text = await response.text()
+        let data: any = null
+        if (text) {
+            try {
+                data = JSON.parse(text)
+            } catch {
+                data = null
+            }
+        }
+        return { status: response.status, data, text }
+    } catch (error) {
+        if (isCertificateError(error)) {
+            consola.warn("Codex OAuth TLS error detected, retrying with insecure agent")
+        } else {
+            consola.warn("Codex OAuth request failed, retrying with insecure agent")
+        }
+        return fetchInsecureJson(url, options)
+    }
+}
+
+async function fetchInsecureJson(
+    url: string,
+    options: { method?: string; headers?: Record<string, string>; body?: string }
+): Promise<JsonResponse> {
+    const bunFetch = (globalThis as { Bun?: { fetch?: typeof fetch } }).Bun?.fetch
+    if (bunFetch) {
+        const response = await bunFetch(url, {
+            method: options.method,
+            headers: options.headers,
+            body: options.body,
+            tls: { rejectUnauthorized: false },
+        })
+        const text = await response.text()
+        let data: any = null
+        if (text) {
+            try {
+                data = JSON.parse(text)
+            } catch {
+                data = null
+            }
+        }
+        return { status: response.status, data, text }
+    }
+
+    const target = new URL(url)
+    const method = options.method || "GET"
+    const headers = {
+        "User-Agent": "anti-api",
+        ...(options.headers || {}),
+    }
+    const insecureAgent = new https.Agent({ rejectUnauthorized: false })
+
+    return new Promise((resolve, reject) => {
+        const req = https.request(
+            {
+                protocol: target.protocol,
+                hostname: target.hostname,
+                port: target.port || 443,
+                path: `${target.pathname}${target.search}`,
+                method,
+                headers,
+                agent: insecureAgent,
+                rejectUnauthorized: false,
+                timeout: 10000,
+            },
+            (res) => {
+                let body = ""
+                res.on("data", (chunk) => {
+                    body += chunk
+                })
+                res.on("end", () => {
+                    let data: any = null
+                    if (body) {
+                        try {
+                            data = JSON.parse(body)
+                        } catch {
+                            data = null
+                        }
+                    }
+                    resolve({
+                        status: res.statusCode || 0,
+                        data,
+                        text: body,
+                    })
+                })
+            }
+        )
+
+        req.on("error", reject)
+        req.on("timeout", () => {
+            req.destroy(new Error("Request timed out"))
+        })
+
+        if (options.body) {
+            req.write(options.body)
+        }
+        req.end()
+    })
+}
+
+function formatOAuthError(data: any, fallback: string, status?: number): string {
+    let message = fallback
+    if (typeof data === "string") {
+        message = data
+    } else if (data && typeof data === "object") {
+        if (typeof data.error_description === "string") {
+            message = data.error_description
+        } else if (typeof data.error === "string") {
+            message = data.error
+        } else if (data.error && typeof data.error.message === "string") {
+            message = data.error.message
+        } else if (typeof data.message === "string") {
+            message = data.message
+        } else {
+            try {
+                message = JSON.stringify(data)
+            } catch {
+                message = fallback
+            }
+        }
+    }
+
+    if (status) {
+        return `${message} (status ${status})`
+    }
+    return message
 }
 
 function parseExpiresAt(value: unknown): number | undefined {
@@ -434,15 +620,16 @@ function buildCodexAuthorizeUrl(): {
     codeVerifier?: string
 } {
     const state = crypto.randomUUID()
-    const redirectUri = `http://localhost:${CODEX_OAUTH_CONFIG.callbackPort}/oauth-callback`
+    const redirectUri = `http://localhost:${CODEX_OAUTH_CONFIG.callbackPort}${CODEX_OAUTH_CONFIG.callbackPath}`
     const params = new URLSearchParams({
         client_id: CODEX_OAUTH_CONFIG.clientId,
         redirect_uri: redirectUri,
         response_type: "code",
         scope: CODEX_OAUTH_CONFIG.scopes.join(" "),
         state,
-        audience: CODEX_OAUTH_CONFIG.audience,
-        prompt: "consent",
+        prompt: "login",
+        id_token_add_organizations: "true",
+        codex_cli_simplified_flow: "true",
     })
 
     const codeVerifier = CODEX_OAUTH_CONFIG.clientSecret ? undefined : generateCodeVerifier()
@@ -452,8 +639,7 @@ function buildCodexAuthorizeUrl(): {
     }
 
     const authUrl = `${CODEX_OAUTH_CONFIG.authorizeUrl}?${params.toString()}`
-    params.delete("audience")
-    const fallbackRedirectUri = `http://127.0.0.1:${CODEX_OAUTH_CONFIG.callbackPort}/oauth-callback`
+    const fallbackRedirectUri = `http://127.0.0.1:${CODEX_OAUTH_CONFIG.callbackPort}${CODEX_OAUTH_CONFIG.callbackPath}`
     params.set("redirect_uri", fallbackRedirectUri)
     const fallbackUrl = `${CODEX_OAUTH_CONFIG.authorizeUrl}?${params.toString()}`
 
@@ -466,7 +652,7 @@ export async function importCodexAuthFile(): Promise<ProviderAccount | null> {
         const raw = JSON.parse(await Bun.file(expandedPath).text()) as any
         const fields = extractCodexTokenFields(raw)
         let accessToken = fields.accessToken
-        const refreshToken = fields.refreshToken
+        let refreshToken = fields.refreshToken
         let expiresAt = fields.expiresAt
         if (!accessToken && !refreshToken) {
             return null
@@ -482,6 +668,9 @@ export async function importCodexAuthFile(): Promise<ProviderAccount | null> {
             try {
                 const refreshed = await refreshCodexAccessToken(refreshToken, "codex-cli")
                 accessToken = refreshed.accessToken
+                if (refreshed.refreshToken) {
+                    refreshToken = refreshed.refreshToken
+                }
                 if (refreshed.expiresIn) {
                     expiresAt = now + refreshed.expiresIn * 1000
                 }
@@ -494,6 +683,9 @@ export async function importCodexAuthFile(): Promise<ProviderAccount | null> {
             try {
                 const refreshed = await refreshCodexAccessToken(refreshToken, "codex-cli")
                 accessToken = refreshed.accessToken
+                if (refreshed.refreshToken) {
+                    refreshToken = refreshed.refreshToken
+                }
                 if (refreshed.expiresIn) {
                     expiresAt = now + refreshed.expiresIn * 1000
                 }
@@ -550,13 +742,16 @@ export async function importCodexProxyAuthFiles(): Promise<ProviderAccount[]> {
             const raw = JSON.parse(readFileSync(join(expandedDir, file), "utf-8")) as any
             const fields = extractCodexTokenFields(raw)
             let accessToken = fields.accessToken
-            const refreshToken = fields.refreshToken
+            let refreshToken = fields.refreshToken
             let expiresAt = fields.expiresAt
 
             if (!accessToken && refreshToken) {
                 try {
                     const refreshed = await refreshCodexAccessToken(refreshToken, "cli-proxy")
                     accessToken = refreshed.accessToken
+                    if (refreshed.refreshToken) {
+                        refreshToken = refreshed.refreshToken
+                    }
                     if (refreshed.expiresIn) {
                         expiresAt = Date.now() + refreshed.expiresIn * 1000
                     }
@@ -708,7 +903,7 @@ export async function pollCodexOAuthSession(state: string): Promise<{
 
 export async function startCodexOAuthLogin(): Promise<ProviderAccount> {
     const state = crypto.randomUUID()
-    const redirectUri = `http://localhost:${CODEX_OAUTH_CONFIG.callbackPort}/oauth-callback`
+    const redirectUri = `http://localhost:${CODEX_OAUTH_CONFIG.callbackPort}${CODEX_OAUTH_CONFIG.callbackPath}`
 
     const params = new URLSearchParams({
         client_id: CODEX_OAUTH_CONFIG.clientId,
@@ -716,8 +911,9 @@ export async function startCodexOAuthLogin(): Promise<ProviderAccount> {
         response_type: "code",
         scope: CODEX_OAUTH_CONFIG.scopes.join(" "),
         state,
-        audience: CODEX_OAUTH_CONFIG.audience,
-        prompt: "consent",
+        prompt: "login",
+        id_token_add_organizations: "true",
+        codex_cli_simplified_flow: "true",
     })
 
     const codeVerifier = CODEX_OAUTH_CONFIG.clientSecret ? undefined : generateCodeVerifier()
@@ -783,22 +979,27 @@ async function exchangeCodexCode(code: string, redirectUri: string, codeVerifier
         params.set("code_verifier", codeVerifier)
     }
 
-    const response = await fetch(CODEX_OAUTH_CONFIG.tokenUrl, {
+    const response = await fetchJsonWithFallback(CODEX_OAUTH_CONFIG.tokenUrl, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: params.toString(),
     })
 
-    const data = await response.json() as any
-    if (!response.ok) {
-        throw new Error(data?.error_description || data?.error || "Codex token exchange failed")
+    if (response.status < 200 || response.status >= 300) {
+        throw new Error(formatOAuthError(response.data, "Codex token exchange failed", response.status))
+    }
+
+    const data = (response.data || {}) as any
+    const accessToken = data.access_token || data.accessToken
+    if (!accessToken) {
+        throw new Error("Codex token exchange failed: missing access token")
     }
 
     return {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
+        accessToken,
+        refreshToken: data.refresh_token || data.refreshToken,
         expiresIn: data.expires_in,
-        idToken: data.id_token,
+        idToken: data.id_token || data.idToken,
     }
 }
 
@@ -821,52 +1022,81 @@ function base64Url(buffer: Buffer): string {
 export async function refreshCodexAccessToken(
     refreshToken: string,
     authSource?: AuthSource
-): Promise<{ accessToken: string; expiresIn?: number }> {
-    if (authSource === "cli-proxy") {
-        return refreshCodexProxyAccessToken(refreshToken)
+): Promise<{ accessToken: string; refreshToken?: string; expiresIn?: number }> {
+    const key = `${authSource || "codex"}:${refreshToken}`
+    const existing = refreshLocks.get(key)
+    if (existing) {
+        return existing
     }
 
-    const params = new URLSearchParams({
-        grant_type: "refresh_token",
-        client_id: CODEX_OAUTH_CONFIG.clientId,
-        refresh_token: refreshToken,
-    })
+    const task = (async () => {
+        try {
+            if (authSource === "cli-proxy") {
+                return await refreshCodexProxyAccessToken(refreshToken)
+            }
 
-    const response = await fetch(CODEX_OAUTH_CONFIG.tokenUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: params.toString(),
-    })
+            const params = new URLSearchParams({
+                grant_type: "refresh_token",
+                client_id: CODEX_OAUTH_CONFIG.clientId,
+                refresh_token: refreshToken,
+            })
 
-    const data = await response.json() as any
-    if (!response.ok) {
-        throw new Error(data?.error_description || data?.error || "Codex token refresh failed")
-    }
+            const response = await fetchJsonWithFallback(CODEX_OAUTH_CONFIG.tokenUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: params.toString(),
+            })
 
-    return {
-        accessToken: data.access_token,
-        expiresIn: data.expires_in,
-    }
+            if (response.status < 200 || response.status >= 300) {
+                throw new Error(formatOAuthError(response.data, "Codex token refresh failed", response.status))
+            }
+
+            const data = (response.data || {}) as any
+            const accessToken = data.access_token || data.accessToken
+            if (!accessToken) {
+                throw new Error("Codex token refresh failed: missing access token")
+            }
+
+            return {
+                accessToken,
+                refreshToken: data.refresh_token || data.refreshToken,
+                expiresIn: data.expires_in,
+            }
+        } finally {
+            refreshLocks.delete(key)
+        }
+    })()
+
+    refreshLocks.set(key, task)
+    return task
 }
 
-async function refreshCodexProxyAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresIn?: number }> {
+async function refreshCodexProxyAccessToken(
+    refreshToken: string
+): Promise<{ accessToken: string; refreshToken?: string; expiresIn?: number }> {
     const params = new URLSearchParams({
         refresh_token: refreshToken,
     })
 
-    const response = await fetch(CODEX_PROXY_REFRESH_URL, {
+    const response = await fetchJsonWithFallback(CODEX_PROXY_REFRESH_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: params.toString(),
     })
 
-    const data = await response.json().catch(() => ({} as any)) as any
-    if (!response.ok) {
-        throw new Error(data?.error_description || data?.error || "Codex proxy token refresh failed")
+    if (response.status < 200 || response.status >= 300) {
+        throw new Error(formatOAuthError(response.data, "Codex proxy token refresh failed", response.status))
+    }
+
+    const data = (response.data || {}) as any
+    const accessToken = data.access_token || data.accessToken
+    if (!accessToken) {
+        throw new Error("Codex proxy token refresh failed: missing access token")
     }
 
     return {
-        accessToken: data.access_token || data.accessToken,
+        accessToken,
+        refreshToken: data.refresh_token || data.refreshToken,
         expiresIn: data.expires_in,
     }
 }
@@ -892,6 +1122,9 @@ export async function refreshCodexAccountIfNeeded(account: ProviderAccount): Pro
     const updated: ProviderAccount = {
         ...account,
         accessToken: refreshed.accessToken,
+    }
+    if (refreshed.refreshToken) {
+        updated.refreshToken = refreshed.refreshToken
     }
 
     if (refreshed.expiresIn) {
@@ -1010,7 +1243,7 @@ function startCodexCallbackServer(
         port,
         fetch(req) {
             const url = new URL(req.url)
-            if (url.pathname === "/oauth-callback") {
+            if (url.pathname === CODEX_OAUTH_CONFIG.callbackPath) {
                 const code = url.searchParams.get("code")
                 const state = url.searchParams.get("state")
                 const error = url.searchParams.get("error")

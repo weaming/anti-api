@@ -77,19 +77,24 @@ authRouter.post("/login", async (c) => {
 
         if (provider === "codex") {
             if (forceInteractive) {
-                const session = await startCodexCliLogin()
-                if (session.status === "error") {
-                    return c.json({ success: false, error: session.message }, 400)
+                // 使用浏览器 OAuth 登录获取完整权限的 token
+                try {
+                    const { startCodexOAuthLogin } = await import("~/services/codex/oauth")
+                    const account = await startCodexOAuthLogin()
+                    return c.json({
+                        success: true,
+                        provider: "codex",
+                        status: "success",
+                        source: "browser-oauth",
+                        account: {
+                            id: account.id,
+                            email: account.email,
+                            source: account.authSource,
+                        },
+                    })
+                } catch (error) {
+                    return c.json({ success: false, error: (error as Error).message }, 400)
                 }
-                return c.json({
-                    success: true,
-                    provider: "codex",
-                    status: "pending",
-                    session_id: session.sessionId,
-                    verification_uri: session.verificationUri,
-                    user_code: session.userCode,
-                    message: session.message,
-                })
             }
 
             const result = await importCodexAuthSources()
@@ -110,7 +115,7 @@ authRouter.post("/login", async (c) => {
             }
             return c.json({
                 success: false,
-                error: "Codex auth files not found. Run Codex CLI login to create ~/.codex/auth.json, then retry.",
+                error: "Codex auth files not found. Use force=true to login via browser.",
             }, 400)
         }
 

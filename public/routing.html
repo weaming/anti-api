@@ -5,7 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anti-API Routing</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>" type="image/svg+xml">
+    <link rel="icon"
+        href="https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://antigravity.google&size=32"
+        type="image/x-icon">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -50,6 +52,21 @@
             backdrop-filter: blur(12px);
         }
 
+        #flow-panel .panel,
+        #account-panel .panel {
+            background: #000;
+        }
+
+        #flow-panel .grid-bg,
+        #account-panel .grid-bg {
+            background-image: none;
+        }
+
+        #flow-panel .grid-bg::after,
+        #account-panel .grid-bg::after {
+            display: none;
+        }
+
         .node {
             border: 1px solid var(--node-border);
             background: rgba(20, 20, 20, 0.9);
@@ -64,17 +81,54 @@
         }
 
         .node-palette {
-            background: rgba(17, 17, 17, 0.85);
-            border-color: rgba(255, 255, 255, 0.08);
+            background: linear-gradient(145deg, rgba(110, 231, 255, 0.12), rgba(10, 10, 10, 0.9));
+            border-color: rgba(110, 231, 255, 0.2);
+            box-shadow: 0 0 12px rgba(110, 231, 255, 0.08);
+            position: relative;
+            overflow: hidden;
         }
 
-        .account-scroll {
-            height: 520px;
-            max-height: calc(100vh - 220px);
-            overflow-y: auto;
-            padding-right: 6px;
+        .node-palette::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(120deg, rgba(110, 231, 255, 0.12), transparent 50%);
+            opacity: 0.3;
+            pointer-events: none;
+        }
+
+        .node-palette::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, rgba(110, 231, 255, 0.6), rgba(110, 231, 255, 0));
+            opacity: 0.5;
+        }
+
+        .panel-scroll {
             scrollbar-width: thin;
             scrollbar-color: rgba(110, 231, 255, 0.3) transparent;
+            padding-right: 6px;
+        }
+
+        .panel-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .panel-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .panel-scroll::-webkit-scrollbar-thumb {
+            background: rgba(110, 231, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        .panel-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(110, 231, 255, 0.5);
         }
 
         .drop-slot {
@@ -135,18 +189,11 @@
                 0 0 42px rgba(34, 197, 94, 0.25);
         }
 
-        #clear-btn:hover {
-            background: rgba(248, 81, 73, 0.18);
-            border-color: rgba(248, 81, 73, 0.8);
-            box-shadow: 0 0 20px rgba(248, 81, 73, 0.45),
-                0 0 42px rgba(248, 81, 73, 0.25);
-        }
-
-        #rotate-btn:hover {
-            background: rgba(107, 77, 163, 0.18);
-            border-color: rgba(107, 77, 163, 0.7);
-            box-shadow: 0 0 20px rgba(107, 77, 163, 0.45),
-                0 0 42px rgba(107, 77, 163, 0.25);
+        #new-btn:hover {
+            background: rgba(110, 231, 255, 0.18);
+            border-color: rgba(110, 231, 255, 0.7);
+            box-shadow: 0 0 20px rgba(110, 231, 255, 0.45),
+                0 0 42px rgba(110, 231, 255, 0.25);
         }
 
         .flow-canvas {
@@ -253,78 +300,238 @@
             }
         }
     </style>
+    <style id="iframe-styles">
+        /* Iframe embed mode styles - match parent page background */
+        body.iframe-mode {
+            padding: 0 !important;
+            background: #000000 !important;
+            --bg-black: #000000;
+            overflow: hidden !important;
+        }
+
+        body.iframe-mode .main-container {
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 8px !important;
+            margin-top: 0 !important;
+            gap: 0 !important;
+        }
+
+        body.iframe-mode .main-container>.space-y-6 {
+            margin-top: 0 !important;
+        }
+
+        body.iframe-mode header #back-btn {
+            display: none !important;
+        }
+
+        body.iframe-mode header .action-wrap {
+            display: none !important;
+        }
+
+        .toggle-switch {
+            appearance: none;
+            width: 44px;
+            height: 24px;
+            background: #333;
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: #666;
+            border-radius: 50%;
+            transition: all 0.3s;
+        }
+
+        .toggle-switch:checked {
+            background: linear-gradient(135deg, #22d3ee, #3b82f6);
+        }
+
+        .toggle-switch:checked::before {
+            left: 22px;
+            background: white;
+        }
+
+        .routing-panels {
+            height: calc(100vh - 160px);
+            min-height: 520px;
+        }
+
+        .select-field {
+            appearance: none;
+            background-color: rgba(10, 10, 10, 0.8);
+            border: 1px solid rgba(110, 231, 255, 0.22);
+            color: #e5e7eb;
+            border-radius: 12px;
+            padding: 10px 36px 10px 12px;
+            font-size: 12px;
+            line-height: 1.2;
+            box-shadow: inset 0 0 0 1px rgba(110, 231, 255, 0.08);
+            background-image:
+                linear-gradient(45deg, transparent 50%, rgba(110, 231, 255, 0.9) 50%),
+                linear-gradient(135deg, rgba(110, 231, 255, 0.9) 50%, transparent 50%),
+                linear-gradient(90deg, rgba(10, 10, 10, 0.9), rgba(10, 10, 10, 0.9));
+            background-position:
+                calc(100% - 18px) 50%,
+                calc(100% - 12px) 50%,
+                100% 0;
+            background-size: 6px 6px, 6px 6px, 40px 100%;
+            background-repeat: no-repeat;
+        }
+
+        .select-field:focus {
+            outline: none;
+            border-color: rgba(110, 231, 255, 0.6);
+            box-shadow: 0 0 0 2px rgba(110, 231, 255, 0.18);
+        }
+    </style>
 </head>
 
 <body class="min-h-screen p-6">
-    <div class="max-w-7xl mx-auto space-y-6">
+    <script>
+        // Immediately detect iframe before DOM renders
+        if (window.self !== window.top) {
+            document.body.classList.add('iframe-mode');
+        }
+    </script>
+    <div class="max-w-7xl mx-auto space-y-6 main-container">
         <header class="flex items-center justify-between">
             <div>
-                <h1 class="text-3xl font-bold text-gray-200">Routing Canvas</h1>
-                <p class="text-sm text-gray-500 mt-1">Drag models into the chain. Only 429 triggers fallback.</p>
+                <h1 class="text-3xl font-bold text-gray-200">Routing</h1>
+                <p class="text-sm text-gray-500 mt-1 font-bold">Build model chains with fallback on 429</p>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2 text-xs">
+                    <button id="tab-flow" onclick="setRoutingTab('flow')"
+                        class="action-btn px-3 py-2 rounded-lg font-bold text-gray-300">
+                        Flow Routing
+                    </button>
+                    <button id="tab-account" onclick="setRoutingTab('account')"
+                        class="action-btn px-3 py-2 rounded-lg font-bold text-gray-400">
+                        Account Routing
+                    </button>
+                </div>
                 <div class="action-wrap inline-block">
                     <button onclick="window.location.href='/quota'" id="back-btn"
                         class="action-btn px-4 py-2 rounded-lg font-bold text-gray-300 text-sm">
                         Back to Quota
                     </button>
                 </div>
-                <div class="action-wrap inline-block">
-                    <button onclick="saveRouting()" id="save-btn"
-                        class="action-btn px-4 py-2 rounded-lg font-bold text-gray-300 text-sm">
-                        Save Flow
-                    </button>
-                </div>
-                <div class="action-wrap inline-block">
-                    <button onclick="clearRouting()" id="clear-btn"
-                        class="action-btn px-4 py-2 rounded-lg font-bold text-gray-300 text-sm">
-                        Clear
-                    </button>
-                </div>
-                <div class="action-wrap inline-block">
-                    <button onclick="rotateRouting()" id="rotate-btn"
-                        class="action-btn px-4 py-2 rounded-lg font-bold text-gray-300 text-sm">
-                        Rotate Next
-                    </button>
-                </div>
             </div>
         </header>
 
-        <div class="grid lg:grid-cols-3 gap-6">
-            <aside class="panel rounded-2xl p-4 space-y-4">
-                <div>
+        <div id="flow-panel" class="grid gap-6 routing-panels" style="grid-template-columns: 1fr 1.5fr 1fr;">
+            <!-- Accounts Panel -->
+            <aside class="panel rounded-2xl p-4 flex flex-col min-h-0">
+                <div class="mb-3 flex-shrink-0">
                     <h2 class="text-sm uppercase tracking-[0.2em] text-gray-500">Accounts</h2>
                     <p class="text-xs text-gray-600 mt-1">Drag a model block into the flow.</p>
                 </div>
-                <div id="account-list" class="space-y-4 account-scroll"></div>
+                <div id="account-list" class="space-y-4 flex-1 min-h-0 overflow-y-auto panel-scroll"></div>
             </aside>
 
-            <section class="relative panel rounded-2xl p-6 min-h-[500px] grid-bg overflow-hidden">
-                <div class="relative z-10">
-                    <div class="flex items-start justify-between gap-4 mb-4">
+            <!-- Flow Panel -->
+            <section class="relative panel rounded-2xl p-6 grid-bg overflow-hidden flex flex-col">
+                <div class="relative z-10 flex flex-col flex-1 min-h-0 overflow-hidden">
+                    <!-- Flow Header -->
+                    <div class="flex items-start justify-between gap-3 mb-4 flex-shrink-0">
                         <div>
                             <h2 class="text-sm uppercase tracking-[0.2em] text-gray-500">Flow</h2>
                             <p class="text-xs text-gray-600 mt-1">Match by model name in requests.</p>
                         </div>
-                        <div class="text-right space-y-1">
-                            <input id="flow-name" placeholder="Flow name"
-                                class="bg-transparent border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-cyan-300"
+                        <div class="flex items-center gap-2">
+                            <input id="flow-name" placeholder="Model ID"
+                                class="bg-transparent border border-gray-700 rounded-lg px-2 py-2 text-xs text-gray-200 focus:outline-none focus:border-cyan-300 w-24 text-center"
                                 autocomplete="off" />
-                            <div id="save-status" class="text-xs text-gray-500"></div>
+                            <div class="action-wrap inline-block">
+                                <button onclick="newFlow()" id="new-btn"
+                                    class="action-btn px-3 py-2 rounded-lg font-bold text-gray-300 text-xs">
+                                    New
+                                </button>
+                            </div>
+                            <div class="action-wrap inline-block">
+                                <button onclick="saveRouting()" id="save-btn"
+                                    class="action-btn px-3 py-2 rounded-lg font-bold text-gray-300 text-xs">
+                                    Save
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    <div id="flow-canvas"
-                        class="flow-canvas flex flex-col gap-4 overflow-y-auto min-h-[240px]"></div>
+                    <div id="save-status" class="text-xs text-gray-500 text-right mb-2 flex-shrink-0"></div>
+                    <!-- Scrollable Flow Canvas -->
+                    <div class="flow-scroll flex-1 min-h-0 overflow-y-auto panel-scroll">
+                        <div id="flow-canvas" class="flow-canvas flex flex-col gap-4 min-h-[240px]"></div>
+                    </div>
                 </div>
             </section>
 
-            <aside class="panel rounded-2xl p-4 space-y-4">
-                <div>
+            <!-- Saved Panel -->
+            <aside class="panel rounded-2xl p-4 flex flex-col min-h-0">
+                <div class="mb-3 flex-shrink-0">
                     <h2 class="text-sm uppercase tracking-[0.2em] text-gray-500">Saved</h2>
-                    <p class="text-xs text-gray-600 mt-1">Load, rename, or delete saved flows.</p>
+                    <p class="text-xs text-gray-600 mt-1">Edit, rename, or delete saved flows.</p>
                 </div>
-                <div id="saved-list" class="space-y-3"></div>
+                <div id="saved-list" class="space-y-3 flex-1 min-h-0 overflow-y-auto panel-scroll"></div>
             </aside>
+        </div>
+
+        <div id="account-panel" class="grid gap-6 hidden routing-panels" style="grid-template-columns: 1fr 2fr;">
+            <aside class="panel rounded-2xl p-4 flex flex-col min-h-0">
+                <div class="mb-3 flex-shrink-0">
+                    <h2 class="text-sm uppercase tracking-[0.2em] text-gray-500">Models</h2>
+                    <p class="text-xs text-gray-600 mt-1">Official model IDs only.</p>
+                </div>
+                <div id="account-model-list" class="space-y-2 flex-1 min-h-0 overflow-y-auto panel-scroll"></div>
+            </aside>
+
+            <section class="panel rounded-2xl p-6 flex flex-col min-h-0">
+                <div class="flex items-start justify-between gap-3 mb-4 flex-shrink-0">
+                    <div>
+                        <h2 class="text-sm uppercase tracking-[0.2em] text-gray-500">Account Chain</h2>
+                        <p class="text-xs text-gray-600 mt-1">Ordered provider/account fallback.</p>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs text-gray-400">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input id="smart-switch" type="checkbox" class="toggle-switch">
+                            <span>Smart Switch</span>
+                        </label>
+                        <button id="account-save-btn" onclick="saveAccountRouting()"
+                            class="action-btn px-3 py-2 rounded-lg font-bold text-gray-300 text-xs">
+                            Save
+                        </button>
+                    </div>
+                </div>
+
+                <div id="account-route-title" class="text-sm text-gray-400 mb-3 flex-shrink-0">Select a model</div>
+
+                <div class="grid gap-3 mb-4 flex-shrink-0" style="grid-template-columns: 1fr 1fr auto;">
+                    <select id="account-provider-select" class="select-field w-full">
+                        <option value="">Provider</option>
+                    </select>
+                    <select id="account-account-select" class="select-field w-full">
+                        <option value="">Account</option>
+                    </select>
+                    <button onclick="addAccountRouteEntry()"
+                        class="action-btn px-3 py-2 rounded-lg font-bold text-gray-300 text-xs">
+                        Add
+                    </button>
+                </div>
+
+                <div id="account-route-list" class="space-y-3 flex-1 min-h-0 overflow-y-auto panel-scroll"></div>
+                <div id="account-route-hint" class="text-xs text-gray-600 mt-3 flex-shrink-0">
+                    Smart Switch on: auto entries expand by account order.
+                </div>
+            </section>
         </div>
     </div>
 
@@ -336,6 +543,293 @@
         let flows = [];
         let flowEntries = [];
         let activeFlowId = null;
+        let quotaData = null;  // Store quota data for model rendering
+        let accountRouting = { smartSwitch: false, routes: [] };
+        let officialModels = [];
+        let selectedAccountModelId = null;
+        let activeRoutingTab = 'flow';
+
+        // Privacy masking (synced from settings via localStorage cache)
+        function getPrivacyMode() {
+            try {
+                const cached = localStorage.getItem('anti-api-privacy-mode');
+                if (cached !== null) return cached === 'true';
+            } catch { }
+            return false;
+        }
+
+        function maskEmail(email) {
+            if (!getPrivacyMode() || !email) return email;
+            const atIndex = email.indexOf('@');
+            if (atIndex < 0) return maskUsername(email);
+
+            const local = email.substring(0, atIndex);
+            const domain = email.substring(atIndex + 1);
+            const dotIndex = domain.lastIndexOf('.');
+
+            let maskedLocal;
+            if (local.length <= 4) {
+                maskedLocal = local[0] + '*'.repeat(local.length - 1);
+            } else {
+                maskedLocal = local.substring(0, 2) + '*'.repeat(local.length - 4) + local.substring(local.length - 2);
+            }
+
+            const ext = dotIndex >= 0 ? domain.substring(dotIndex) : '';
+            const maskedDomain = '*'.repeat(5) + ext;
+
+            return maskedLocal + '@' + maskedDomain;
+        }
+
+        function maskUsername(name) {
+            if (!getPrivacyMode() || !name) return name;
+            if (name.length <= 3) return name[0] + '*'.repeat(name.length - 1);
+            return name.substring(0, 3) + '*'.repeat(Math.min(4, name.length - 3));
+        }
+
+        function setRoutingTab(tab) {
+            activeRoutingTab = tab;
+            const flowPanel = document.getElementById('flow-panel');
+            const accountPanel = document.getElementById('account-panel');
+            const flowBtn = document.getElementById('tab-flow');
+            const accountBtn = document.getElementById('tab-account');
+
+            if (flowPanel) flowPanel.classList.toggle('hidden', tab !== 'flow');
+            if (accountPanel) accountPanel.classList.toggle('hidden', tab !== 'account');
+
+            if (flowBtn) {
+                flowBtn.classList.toggle('text-cyan-300', tab === 'flow');
+                flowBtn.classList.toggle('border-cyan-300/70', tab === 'flow');
+                flowBtn.classList.toggle('text-gray-300', tab !== 'flow');
+            }
+            if (accountBtn) {
+                accountBtn.classList.toggle('text-cyan-300', tab === 'account');
+                accountBtn.classList.toggle('border-cyan-300/70', tab === 'account');
+                accountBtn.classList.toggle('text-gray-300', tab !== 'account');
+            }
+
+            if (tab === 'flow') {
+                requestAnimationFrame(drawFlowLines);
+            }
+        }
+
+        function collectOfficialModels(modelData) {
+            const map = new Map();
+            Object.values(modelData || {}).forEach(list => {
+                (list || []).forEach(model => {
+                    if (!map.has(model.id)) {
+                        map.set(model.id, model.label || model.id);
+                    }
+                });
+            });
+            return Array.from(map.entries())
+                .map(([id, label]) => ({ id, label }))
+                .sort((a, b) => a.id.localeCompare(b.id));
+        }
+
+        function getProvidersForModel(modelId) {
+            return Object.entries(models)
+                .filter(([, list]) => (list || []).some(model => model.id === modelId))
+                .map(([provider]) => provider);
+        }
+
+        function getAccountRoute(modelId) {
+            return accountRouting.routes.find(route => route.modelId === modelId) || null;
+        }
+
+        function ensureAccountRoute(modelId) {
+            let route = getAccountRoute(modelId);
+            if (!route) {
+                route = { id: crypto.randomUUID(), modelId, entries: [] };
+                accountRouting.routes.push(route);
+            }
+            return route;
+        }
+
+        function renderAccountRouting() {
+            const smartSwitchInput = document.getElementById('smart-switch');
+            if (smartSwitchInput) {
+                smartSwitchInput.checked = !!accountRouting.smartSwitch;
+                smartSwitchInput.onchange = () => {
+                    accountRouting.smartSwitch = smartSwitchInput.checked;
+                    renderAccountRouteEditor();
+                    void persistAccountRoutingOnly();
+                };
+            }
+
+            renderAccountModels();
+            if (!selectedAccountModelId && officialModels.length > 0) {
+                selectedAccountModelId = officialModels[0].id;
+            }
+            renderAccountRouteEditor();
+        }
+
+        function renderAccountModels() {
+            const container = document.getElementById('account-model-list');
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (officialModels.length === 0) {
+                container.innerHTML = '<div class="text-xs text-gray-500">No official models available.</div>';
+                return;
+            }
+
+            officialModels.forEach(model => {
+                const route = getAccountRoute(model.id);
+                const count = route?.entries?.length || 0;
+                const card = document.createElement('button');
+                const isActive = model.id === selectedAccountModelId;
+                card.className = `node node-palette w-full text-left rounded-xl px-3 py-3 text-xs space-y-1 ${isActive ? 'border-cyan-300/70 shadow-[0_0_18px_rgba(110,231,255,0.25)]' : ''}`;
+                card.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-semibold text-gray-200">${model.label}</span>
+                        <span class="account-pill text-[10px] px-2 py-0.5 rounded-full">${count} hops</span>
+                    </div>
+                    <div class="text-[10px] text-gray-500">${model.id}</div>
+                `;
+                card.addEventListener('click', () => {
+                    selectedAccountModelId = model.id;
+                    renderAccountModels();
+                    renderAccountRouteEditor();
+                });
+                container.appendChild(card);
+            });
+        }
+
+        function renderAccountRouteEditor() {
+            const title = document.getElementById('account-route-title');
+            const list = document.getElementById('account-route-list');
+            const providerSelect = document.getElementById('account-provider-select');
+            const accountSelect = document.getElementById('account-account-select');
+            const hint = document.getElementById('account-route-hint');
+
+            if (!title || !list || !providerSelect || !accountSelect) return;
+
+            if (!selectedAccountModelId) {
+                title.textContent = 'Select a model';
+                list.innerHTML = '';
+                return;
+            }
+
+            title.textContent = `Model: ${selectedAccountModelId}`;
+            list.innerHTML = '';
+
+            const route = ensureAccountRoute(selectedAccountModelId);
+
+            route.entries.forEach((entry, index) => {
+                const card = document.createElement('div');
+                card.className = 'node rounded-xl px-3 py-3 text-xs flex items-center justify-between gap-3';
+                const rawLabel = entry.accountLabel || entry.accountId;
+                const display = entry.accountId === 'auto'
+                    ? 'Auto (Smart Switch)'
+                    : (entry.provider === 'copilot' ? maskUsername(rawLabel) : maskEmail(rawLabel));
+                card.innerHTML = `
+                    <div>
+                        <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500">${entry.provider}</div>
+                        <div class="text-sm font-semibold text-gray-200 mt-1">${display}</div>
+                    </div>
+                    <div class="flex items-center gap-2 text-[10px] text-gray-500">
+                        <button onclick="moveAccountRouteEntry(${index}, -1)">Up</button>
+                        <button onclick="moveAccountRouteEntry(${index}, 1)">Down</button>
+                        <button onclick="removeAccountRouteEntry(${index})">Remove</button>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+
+            if (route.entries.length === 0) {
+                list.innerHTML = '<div class="text-xs text-gray-500">No entries yet.</div>';
+            }
+
+            const providers = getProvidersForModel(selectedAccountModelId);
+            providerSelect.innerHTML = '<option value="">Provider</option>';
+            providers.forEach(provider => {
+                const option = document.createElement('option');
+                option.value = provider;
+                option.textContent = provider;
+                providerSelect.appendChild(option);
+            });
+
+            providerSelect.onchange = () => updateAccountSelectOptions();
+            updateAccountSelectOptions();
+            renderAccountModels();
+
+            if (hint) {
+                hint.textContent = accountRouting.smartSwitch
+                    ? 'Smart Switch on: auto entries expand by account order.'
+                    : 'Smart Switch off: only explicit account order is used.';
+            }
+        }
+
+        function updateAccountSelectOptions() {
+            const providerSelect = document.getElementById('account-provider-select');
+            const accountSelect = document.getElementById('account-account-select');
+            const smartSwitchInput = document.getElementById('smart-switch');
+            if (!providerSelect || !accountSelect) return;
+
+            const provider = providerSelect.value;
+            accountSelect.innerHTML = '<option value="">Account</option>';
+
+            if (!provider) return;
+
+            if (smartSwitchInput?.checked) {
+                const autoOption = document.createElement('option');
+                autoOption.value = 'auto';
+                autoOption.textContent = 'Auto (Smart Switch)';
+                accountSelect.appendChild(autoOption);
+            }
+
+            const accountList = accounts[provider] || [];
+            accountList.forEach(account => {
+                const option = document.createElement('option');
+                option.value = account.id;
+                option.textContent = account.displayName || account.id;
+                accountSelect.appendChild(option);
+            });
+        }
+
+        function addAccountRouteEntry() {
+            if (!selectedAccountModelId) return;
+            const providerSelect = document.getElementById('account-provider-select');
+            const accountSelect = document.getElementById('account-account-select');
+            if (!providerSelect || !accountSelect) return;
+
+            const provider = providerSelect.value;
+            const accountId = accountSelect.value;
+            if (!provider || !accountId) return;
+
+            const route = ensureAccountRoute(selectedAccountModelId);
+            const displayName = accountId === 'auto'
+                ? 'Auto (Smart Switch)'
+                : (accounts[provider] || []).find(acc => acc.id === accountId)?.displayName;
+            route.entries.push({
+                id: crypto.randomUUID(),
+                provider,
+                accountId,
+                accountLabel: displayName,
+            });
+            renderAccountRouteEditor();
+        }
+
+        function moveAccountRouteEntry(index, delta) {
+            if (!selectedAccountModelId) return;
+            const route = ensureAccountRoute(selectedAccountModelId);
+            const target = index + delta;
+            if (target < 0 || target >= route.entries.length) return;
+            const [item] = route.entries.splice(index, 1);
+            route.entries.splice(target, 0, item);
+            renderAccountRouteEditor();
+        }
+
+        function removeAccountRouteEntry(index) {
+            if (!selectedAccountModelId) return;
+            const route = ensureAccountRoute(selectedAccountModelId);
+            route.entries.splice(index, 1);
+            renderAccountRouteEditor();
+        }
+
+        async function saveAccountRouting() {
+            await persistAccountRoutingOnly();
+        }
 
         async function loadRouting() {
             const response = await fetch(`${API_BASE}/routing/config`);
@@ -343,19 +837,24 @@
             accounts = data.accounts || {};
             models = data.models || {};
             flows = Array.isArray(data.config?.flows) ? data.config.flows : [];
+            quotaData = data.quota || null;
+            accountRouting = data.config?.accountRouting || { smartSwitch: false, routes: [] };
+            officialModels = collectOfficialModels(models);
 
             const savedFlowId = localStorage.getItem(ACTIVE_FLOW_KEY);
             const initialFlow = flows.find(flow => flow.id === savedFlowId) || flows[0] || null;
             setActiveFlow(initialFlow);
             renderAccounts();
             bindCanvasEvents();
+            renderAccountRouting();
+            setRoutingTab(activeRoutingTab);
         }
 
         function cloneEntries(entries) {
             return (entries || []).map(entry => ({ ...entry }));
         }
 
-        function setActiveFlow(flow) {
+        async function setActiveFlow(flow) {
             activeFlowId = flow ? flow.id : null;
             flowEntries = flow ? cloneEntries(flow.entries) : [];
 
@@ -368,6 +867,18 @@
                 localStorage.setItem(ACTIVE_FLOW_KEY, activeFlowId);
             } else {
                 localStorage.removeItem(ACTIVE_FLOW_KEY);
+            }
+
+            // 🆕 同步到后端，让服务器知道当前激活的 flow
+            try {
+                await fetch('/routing/active-flow', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ flowId: activeFlowId })
+                });
+                console.log(`Active flow set: ${flow?.name || '(none)'}`);
+            } catch (e) {
+                console.error('Failed to set active flow:', e);
             }
 
             renderFlow();
@@ -399,14 +910,14 @@
 
                 const hint = document.createElement('div');
                 hint.className = 'text-[10px] text-gray-500';
-                hint.textContent = isActive ? 'Editing' : 'Click to load';
+                hint.textContent = isActive ? 'Editing' : 'Click to edit';
                 card.appendChild(hint);
 
                 const actions = document.createElement('div');
                 actions.className = 'flex items-center gap-3 text-[10px] text-gray-400';
 
                 const loadBtn = document.createElement('button');
-                loadBtn.textContent = isActive ? 'Loaded' : 'Load';
+                loadBtn.textContent = isActive ? 'Editing' : 'Edit';
                 loadBtn.disabled = isActive;
                 loadBtn.addEventListener('click', (event) => {
                     event.stopPropagation();
@@ -448,6 +959,48 @@
             await persistRoutingConfig();
         }
 
+        // Get quota percentage for a provider/account
+        function getAccountQuota(provider, accountId) {
+            if (!quotaData || !quotaData.accounts) return null;
+
+            // Find account in quotaData.accounts
+            const accountData = quotaData.accounts.find(acc =>
+                acc.provider === provider && acc.accountId === accountId
+            );
+
+            if (!accountData || !accountData.bars || accountData.bars.length === 0) return null;
+
+            // Get the first bar's percentage (typically "claude_gpt" or similar)
+            return accountData.bars[0].percentage;
+        }
+
+        // Get quota percentage for a specific model
+        function getModelQuota(provider, accountId, modelId) {
+            if (!quotaData || !quotaData.accounts) return null;
+            if (provider !== 'antigravity') return null; // Only antigravity has model-level quotas
+
+            const accountData = quotaData.accounts.find(acc =>
+                acc.provider === provider && acc.accountId === accountId
+            );
+
+            if (!accountData || !accountData.bars) return null;
+
+            // Determine which bar category this model belongs to
+            const claudeGptModels = ['claude-sonnet-4-5', 'claude-sonnet-4-5-thinking', 'claude-opus-4-5-thinking', 'gpt-oss-120b'];
+            const gproModels = ['gemini-3-pro-low', 'gemini-3-pro-high'];
+            const gflashModels = ['gemini-3-flash'];
+
+            let barKey = null;
+            if (claudeGptModels.includes(modelId)) barKey = 'claude_gpt';
+            else if (gproModels.includes(modelId)) barKey = 'gpro';
+            else if (gflashModels.includes(modelId)) barKey = 'gflash';
+
+            if (!barKey) return null;
+
+            const bar = accountData.bars.find(b => b.key === barKey);
+            return bar ? bar.percentage : null;
+        }
+
         function renderAccounts() {
             const container = document.getElementById('account-list');
             container.innerHTML = '';
@@ -462,29 +1015,75 @@
 
                 providerAccounts.forEach(account => {
                     const card = document.createElement('div');
-                    card.className = 'space-y-3';
+                    card.className = 'space-y-2';
+
+                    // Get quota percentage for this account (quotaPercent = REMAINING percentage, not used)
+                    const remaining = getAccountQuota(provider, account.id);
+
+                    // Check if this account is collapsed (default to collapsed)
+                    const collapseKey = `routing-collapse-${provider}-${account.id}`;
+                    const storedValue = localStorage.getItem(collapseKey);
+                    const isCollapsed = storedValue === null ? true : storedValue === 'true';
+
+                    const maskedDisplayName = provider === 'copilot' ? maskUsername(account.displayName) : maskEmail(account.displayName);
 
                     const header = document.createElement('div');
-                    header.className = 'flex items-center justify-between';
+                    header.className = 'flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity';
                     header.innerHTML = `
-                        <div class="text-sm font-semibold text-gray-200">${account.displayName}</div>
-                        <span class="account-pill text-[10px] px-2 py-0.5 rounded-full">${provider}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] text-gray-500 transition-transform ${isCollapsed ? '' : 'rotate-90'}" data-toggle-icon>▶</span>
+                            <span class="text-sm font-semibold text-gray-200">${maskedDisplayName}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="account-pill text-[10px] px-2 py-0.5 rounded-full">${provider}</span>
+                        </div>
                     `;
                     card.appendChild(header);
 
                     const modelGrid = document.createElement('div');
-                    modelGrid.className = 'grid grid-cols-1 gap-2';
+                    modelGrid.className = 'grid grid-cols-1 gap-2 overflow-hidden transition-all duration-200';
+                    modelGrid.style.maxHeight = isCollapsed ? '0px' : '1000px';
+                    modelGrid.style.opacity = isCollapsed ? '0' : '1';
+
+                    // Toggle collapse on header click
+                    header.addEventListener('click', () => {
+                        const nowCollapsed = modelGrid.style.maxHeight !== '0px';
+                        modelGrid.style.maxHeight = nowCollapsed ? '0px' : '1000px';
+                        modelGrid.style.opacity = nowCollapsed ? '0' : '1';
+                        header.querySelector('[data-toggle-icon]').classList.toggle('rotate-90', !nowCollapsed);
+                        localStorage.setItem(collapseKey, nowCollapsed ? 'true' : 'false');
+                    });
 
                     providerModels.forEach(model => {
                         const node = document.createElement('div');
-                        node.className = 'node node-palette rounded-xl px-3 py-2 text-xs cursor-grab';
+                        node.className = 'node flow-node rounded-xl px-3 py-2 text-xs cursor-grab relative overflow-hidden';
                         node.draggable = true;
                         node.dataset.provider = provider;
                         node.dataset.accountId = account.id;
                         node.dataset.modelId = model.id;
                         node.dataset.label = model.label;
                         node.dataset.accountLabel = account.displayName;
-                        node.textContent = model.label;
+
+                        // Get model-specific quota (for antigravity) or account quota (for others)
+                        const modelQuota = getModelQuota(provider, account.id, model.id) ?? getAccountQuota(provider, account.id);
+                        const baseGradient = "linear-gradient(145deg, rgba(110, 231, 255, 0.14), rgba(10, 10, 10, 0.9))";
+
+                        // Combine flow gradient with battery fill effect
+                        if (modelQuota !== null) {
+                            node.style.backgroundImage = `linear-gradient(90deg, 
+                                rgba(110, 231, 255, 0.22) 0%, 
+                                rgba(110, 231, 255, 0.16) ${modelQuota}%, 
+                                rgba(10, 10, 10, 0.95) ${modelQuota}%), ${baseGradient}`;
+                        } else {
+                            node.style.backgroundImage = baseGradient;
+                        }
+
+                        node.innerHTML = `
+                            <div class="flex items-center justify-between relative z-10">
+                                <span>${model.label}</span>
+                                ${modelQuota !== null ? `<span class="text-[10px] text-cyan-400/80">${modelQuota}%</span>` : ''}
+                            </div>
+                        `;
                         node.addEventListener('dragstart', onDragStart);
                         modelGrid.appendChild(node);
                     });
@@ -518,12 +1117,16 @@
                 node.addEventListener('dragover', onNodeDragOver);
                 node.addEventListener('dragleave', onNodeDragLeave);
                 node.addEventListener('drop', onNodeDrop);
+                // Apply privacy masking to account label
+                const rawAccountLabel = entry.accountLabel || entry.accountId;
+                const maskedAccountLabel = entry.provider === 'copilot' ? maskUsername(rawAccountLabel) : maskEmail(rawAccountLabel);
+
                 node.innerHTML = `
                     <div class="flex items-center justify-between">
                         <div class="flow-badge">${i + 1}</div>
                         <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500">${entry.provider}</span>
                     </div>
-                    <div class="text-xs text-gray-500 mt-2">${entry.accountLabel || entry.accountId}</div>
+                    <div class="text-xs text-gray-500 mt-2">${maskedAccountLabel}</div>
                     <div class="text-sm font-semibold text-gray-200 mt-1">${entry.label}</div>
                     <div class="text-[10px] text-gray-500 mt-2">fallback on 429</div>
                     <button class="text-[10px] text-gray-500 mt-2" onclick="removeEntry(${i})">Remove</button>
@@ -688,21 +1291,39 @@
             const response = await fetch(`${API_BASE}/routing/config`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ flows })
+                body: JSON.stringify({ flows, accountRouting })
             });
             const data = await response.json();
             flows = Array.isArray(data.config?.flows) ? data.config.flows : flows;
+            accountRouting = data.config?.accountRouting || accountRouting;
             const active = flows.find(flow => flow.id === activeFlowId) || null;
             setActiveFlow(active);
+            renderAccountRouting();
+        }
+
+        async function persistAccountRoutingOnly() {
+            const response = await fetch(`${API_BASE}/routing/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accountRouting })
+            });
+            const data = await response.json();
+            accountRouting = data.config?.accountRouting || accountRouting;
+            renderAccountRouting();
         }
 
         function bindCanvasEvents() {
             const canvas = document.getElementById('flow-canvas');
+            const scrollContainer = document.querySelector('.flow-scroll');
             if (!canvas || canvas.dataset.bound) return;
             canvas.dataset.bound = 'true';
-            canvas.addEventListener('scroll', () => {
-                requestAnimationFrame(drawFlowLines);
-            }, { passive: true });
+
+            // Bind scroll event to the scrollable container
+            if (scrollContainer) {
+                scrollContainer.addEventListener('scroll', () => {
+                    requestAnimationFrame(drawFlowLines);
+                }, { passive: true });
+            }
         }
 
         function drawFlowLines() {
@@ -769,6 +1390,16 @@
 
         loadRouting();
         window.addEventListener('resize', drawFlowLines);
+
+        // Listen for privacy mode changes from other pages
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'anti-api-privacy-mode') {
+                console.log('[Routing] Privacy mode changed, re-rendering...');
+                renderAccounts();
+                renderFlow();
+                renderAccountRouting();
+            }
+        });
     </script>
 </body>
 

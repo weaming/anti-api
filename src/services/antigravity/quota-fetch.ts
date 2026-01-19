@@ -32,6 +32,7 @@ export async function fetchAntigravityModels(
     }
 
     const data = response.data as { models?: Record<string, { quotaInfo?: AntigravityModelInfo }> }
+
     const models: Record<string, AntigravityModelInfo> = {}
     for (const [name, info] of Object.entries(data.models || {})) {
         models[name] = {

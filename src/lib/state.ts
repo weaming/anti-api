@@ -35,7 +35,7 @@ export const state: State = {
     tokenExpiresAt: null,
     userEmail: null,
     userName: null,
-    port: 8964,
+    port: 44444,  // 🆕 修正为 anti-api 实际端口
     verbose: false,
     cloudaicompanionProject: null,
     languageServerPort: null,

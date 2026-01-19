@@ -5,8 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>" type="image/svg+xml">
+    <link rel="icon"
+        href="https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://antigravity.google&size=32"
+        type="image/x-icon">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
     <style>
         :root {
             --anti-blue: #4796E3;
@@ -58,9 +61,8 @@
         .card-inner {
             transform-style: preserve-3d;
             transition: box-shadow 0.3s ease, background 0.3s ease, border-color 0.3s ease;
-            background: rgba(17, 17, 17, 0.9);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(59, 42, 84, 0.3);
+            background: transparent;
+            border: 1px solid rgba(55, 65, 81, 0.5);
         }
 
         /* Antigravity - 蓝紫色背景光晕 */
@@ -220,8 +222,7 @@
         .loading-screen {
             position: fixed;
             inset: 0;
-            background: radial-gradient(circle at top, rgba(71, 150, 227, 0.12), transparent 45%),
-                #000000;
+            background: #000;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -234,22 +235,12 @@
             pointer-events: none;
         }
 
-        .loading-box {
-            background: rgba(17, 17, 17, 0.9);
-            border: 1px solid rgba(59, 42, 84, 0.5);
-            border-radius: 20px;
-            padding: 28px 36px;
-            text-align: center;
-            box-shadow: 0 0 30px rgba(71, 150, 227, 0.25);
-        }
-
         .loading-spinner {
             width: 42px;
             height: 42px;
             border-radius: 999px;
             border: 2px solid rgba(255, 255, 255, 0.15);
             border-top-color: var(--anti-blue);
-            margin: 0 auto 14px;
             animation: spin 0.9s linear infinite;
         }
 
@@ -258,69 +249,296 @@
                 transform: rotate(360deg);
             }
         }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            appearance: none;
+            width: 44px;
+            height: 24px;
+            background: #333;
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: #666;
+            border-radius: 50%;
+            transition: all 0.3s;
+        }
+
+        .toggle-switch:checked {
+            background: linear-gradient(135deg, #22d3ee, #3b82f6);
+        }
+
+        .toggle-switch:checked::before {
+            left: 22px;
+            background: white;
+        }
     </style>
 </head>
 
 <body class="min-h-screen p-6">
     <div id="loading-screen" class="loading-screen">
-        <div class="loading-box">
-            <div class="loading-spinner"></div>
-            <div class="text-sm text-gray-200 font-semibold">loading...hell the world...</div>
-        </div>
+        <div class="loading-spinner"></div>
     </div>
     <!-- Main Content -->
-    <div class="max-w-7xl mx-auto">
-        <!-- Header -->
-        <div class="mb-8 flex items-center justify-between">
-            <div>
-                <h1 class="text-3xl font-bold text-gray-300">Dashboard</h1>
-                <p id="plan-info" class="text-gray-500 text-sm font-bold mt-1">Loading...</p>
-                <div id="copy-toast"
-                    class="fixed bottom-32 right-8 bg-gray-800 text-gray-300 px-4 py-2 rounded-lg text-sm opacity-0 translate-x-8 transition-all duration-300 pointer-events-none z-50">
-                    Copied!</div>
-            </div>
-            <div class="text-right">
-                <div class="flex items-center gap-3 justify-end">
-                    <div class="refresh-btn inline-block">
-                        <button onclick="window.open('/remote-panel', '_blank')" id="remote-btn"
-                            class="px-4 py-1.5 rounded-lg font-bold text-gray-300 text-sm">
-                            Remote
-                        </button>
-                    </div>
-                    <div class="refresh-btn inline-block">
-                        <button onclick="window.location.href='/routing'" id="routing-btn"
-                            class="px-4 py-1.5 rounded-lg font-bold text-gray-300 text-sm">
-                            Routing(Beta)
-                        </button>
-                    </div>
-                    <div class="refresh-btn inline-block" id="add-account-container">
-                        <button onclick="openAddAccountModal()" id="add-account-btn"
-                            class="px-4 py-1.5 rounded-lg font-bold text-green-400 text-sm">
-                            Add
-                        </button>
-                    </div>
-                    <div class="refresh-btn inline-block" id="refresh-container">
-                        <button onclick="refreshAll(true)" id="refresh-btn"
-                            class="px-4 py-1.5 rounded-lg font-bold text-gray-300 text-sm">
-                            Refresh
-                        </button>
-                    </div>
+    <div class="max-w-6xl mx-auto">
+        <!-- Tab Navigation -->
+        <div class="flex items-center gap-1 mb-6">
+            <button onclick="switchTab('quota')" id="tab-quota"
+                class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-white bg-gradient-to-r from-cyan-500/30 to-blue-500/30 border border-cyan-500/50">
+                Quota
+            </button>
+            <button onclick="switchTab('usage')" id="tab-usage"
+                class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200 hidden">
+                Usage
+            </button>
+            <button onclick="switchTab('remote')" id="tab-remote"
+                class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200">
+                Remote
+            </button>
+            <button onclick="switchTab('routing')" id="tab-routing"
+                class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200">
+                Routing <span class="text-[10px] text-gray-500">(Beta)</span>
+            </button>
+            <button onclick="switchTab('settings')" id="tab-settings"
+                class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200">
+                Settings
+            </button>
+        </div>
 
+        <!-- Toast -->
+        <div id="copy-toast"
+            class="fixed bottom-32 right-8 bg-gray-800 text-gray-300 px-4 py-2 rounded-lg text-sm opacity-0 translate-x-8 transition-all duration-300 pointer-events-none z-50">
+            Copied!</div>
+
+        <!-- ==================== QUOTA TAB ==================== -->
+        <div id="tab-content-quota" class="tab-content">
+            <!-- Quota Header -->
+            <div class="mb-6 flex items-start justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-300">Quota</h1>
+                    <p id="plan-info" class="text-gray-500 text-sm font-bold mt-1">Loading...</p>
                 </div>
-                <p id="last-updated" class="text-gray-600 text-xs mt-2"></p>
+                <div class="flex flex-col items-end gap-2">
+                    <div class="flex items-center gap-3">
+                        <div class="refresh-btn inline-block" id="add-account-container">
+                            <button onclick="openAddAccountModal()" id="add-account-btn"
+                                class="px-4 py-1.5 rounded-lg font-bold text-gray-300 text-sm">
+                                Add
+                            </button>
+                        </div>
+                        <div class="refresh-btn inline-block" id="refresh-container">
+                            <button onclick="refreshAll(true)" id="refresh-btn"
+                                class="px-4 py-1.5 rounded-lg font-bold text-gray-300 text-sm">
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <p id="last-updated" class="text-gray-600 text-xs text-right"></p>
+                </div>
+            </div>
+
+            <!-- Quota Grid -->
+            <div id="quota-grid" class="space-y-6">
+                <!-- Loading placeholder -->
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="card-3d">
+                        <div class="card-inner rounded-lg p-4 animate-pulse">
+                            <div class="h-3 bg-gray-800 rounded w-1/2 mb-3"></div>
+                            <div class="h-6 bg-gray-800 rounded w-2/3"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Quota Grid -->
-        <div id="quota-grid" class="space-y-6">
-            <!-- Loading placeholder -->
-            <div class="grid grid-cols-3 gap-4">
-                <div class="card-3d">
-                    <div class="card-inner rounded-lg p-4 animate-pulse">
-                        <div class="h-3 bg-gray-800 rounded w-1/2 mb-3"></div>
-                        <div class="h-6 bg-gray-800 rounded w-2/3"></div>
+        <!-- ==================== USAGE TAB ==================== -->
+        <div id="tab-content-usage" class="tab-content hidden">
+            <div class="mb-8 flex items-start justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-300">Usage Statistics</h1>
+                    <p class="text-gray-500 text-sm mt-1 font-bold">Token consumption and estimated cost</p>
+                </div>
+                <div class="refresh-btn inline-block">
+                    <button onclick="fetchUsageData()" class="px-4 py-1.5 rounded-lg font-bold text-gray-300 text-sm">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+
+            <!-- Top Row: Daily Usage (wider) + Cost Card (narrower, taller) -->
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+                <!-- Daily Usage Chart (3/5 width) -->
+                <div class="md:col-span-3 rounded-xl border border-gray-800 p-5">
+                    <div class="text-base font-bold text-gray-300 mb-4">Daily Usage</div>
+                    <div style="height: 200px; max-height: 200px;">
+                        <canvas id="daily-chart"></canvas>
                     </div>
                 </div>
+
+                <!-- Combined Cost Card (2/5 width, taller) -->
+                <div class="md:col-span-2 rounded-xl border border-gray-800 p-6 flex flex-col justify-center"
+                    style="min-height: 240px;">
+                    <div class="space-y-6">
+                        <div class="text-center">
+                            <div class="text-gray-400 text-base mb-3">Today Cost</div>
+                            <div id="usage-today-cost" class="text-4xl font-bold text-cyan-400">$0.00</div>
+                        </div>
+                        <div class="text-center border-t border-gray-700 pt-6">
+                            <div class="text-gray-400 text-base mb-3">Total Cost</div>
+                            <div id="usage-total-large" class="text-4xl font-bold text-cyan-400">$0.00</div>
+                        </div>
+                    </div>
+                    <div class="text-[10px] text-gray-600 mt-5 text-center">Based on public API pricing</div>
+                </div>
+            </div>
+
+            <!-- Model Distribution with integrated breakdown -->
+            <div class="rounded-xl border border-gray-800 p-5">
+                <div class="text-sm font-bold text-gray-300 mb-4">Model Distribution</div>
+                <div class="flex flex-col md:flex-row gap-10 py-4">
+                    <!-- Chart on left -->
+                    <div class="flex-shrink-0 ml-4" style="width: 240px; height: 240px;">
+                        <canvas id="model-chart"></canvas>
+                    </div>
+                    <!-- Model details on right -->
+                    <div id="usage-model-list" class="flex-1 space-y-1 flex flex-col justify-end">
+                        <div class="text-gray-500 text-sm text-center py-4">No usage data yet</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== REMOTE TAB ==================== -->
+        <div id="tab-content-remote" class="tab-content hidden">
+            <iframe id="remote-iframe" class="w-full border-0 bg-black"
+                style="height: calc(100vh - 160px); min-height: 500px;"></iframe>
+        </div>
+
+        <!-- ==================== ROUTING TAB ==================== -->
+        <div id="tab-content-routing" class="tab-content hidden">
+            <iframe id="routing-iframe" class="w-full border-0 bg-black"
+                style="height: calc(100vh - 160px); min-height: 500px;"></iframe>
+        </div>
+
+        <!-- ==================== SETTINGS TAB ==================== -->
+        <div id="tab-content-settings" class="tab-content hidden">
+            <div class="mb-6">
+                <h1 class="text-2xl font-bold text-gray-300">Settings</h1>
+                <p class="text-gray-500 text-sm font-bold mt-1">Configure application behavior</p>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 max-w-3xl lg:grid-cols-2">
+                <div class="space-y-4">
+                    <!-- Preload Routing -->
+                    <label
+                        class="flex items-center justify-between p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer">
+                        <div>
+                            <div class="text-gray-200 font-medium">Preload Routing</div>
+                            <div class="text-gray-500 text-xs mt-0.5">Load Routing tab in background for instant
+                                switching
+                            </div>
+                        </div>
+                        <input type="checkbox" id="setting-preload-routing" class="toggle-switch" checked>
+                    </label>
+
+                    <!-- Auto Ngrok -->
+                    <label
+                        class="flex items-center justify-between p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer">
+                        <div>
+                            <div class="text-gray-200 font-medium">Auto Start ngrok</div>
+                            <div class="text-gray-500 text-xs mt-0.5">Automatically start ngrok tunnel on server launch
+                            </div>
+                        </div>
+                        <input type="checkbox" id="setting-auto-ngrok" class="toggle-switch">
+                    </label>
+
+                    <!-- Auto Open Dashboard -->
+                    <label
+                        class="flex items-center justify-between p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer">
+                        <div>
+                            <div class="text-gray-200 font-medium">Auto Open Dashboard</div>
+                            <div class="text-gray-500 text-xs mt-0.5">Open browser to Dashboard on server start</div>
+                        </div>
+                        <input type="checkbox" id="setting-auto-open" class="toggle-switch" checked>
+                    </label>
+
+                    <!-- Auto Refresh -->
+                <label
+                    class="flex items-center justify-between p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer">
+                    <div>
+                        <div class="text-gray-200 font-medium">Auto Refresh Quota</div>
+                        <div class="text-gray-500 text-xs mt-0.5">Automatically refresh quota and usage every 10 minutes</div>
+                    </div>
+                    <input type="checkbox" id="setting-auto-refresh" class="toggle-switch" checked>
+                </label>
+                </div>
+
+                <div class="space-y-4">
+                    <!-- Privacy Protection -->
+                    <label
+                        class="flex items-center justify-between p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer">
+                        <div>
+                            <div class="text-gray-200 font-medium">Privacy Protection</div>
+                            <div class="text-gray-500 text-xs mt-0.5">Mask emails and usernames</div>
+                        </div>
+                        <input type="checkbox" id="setting-privacy-mode" class="toggle-switch">
+                    </label>
+
+                    <!-- Compact Layout -->
+                    <label
+                        class="flex items-center justify-between p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer">
+                        <div>
+                            <div class="text-gray-200 font-medium">Compact Layout</div>
+                            <div class="text-gray-500 text-xs mt-0.5">Reduce Antigravity cards to 2 bars</div>
+                        </div>
+                        <input type="checkbox" id="setting-compact-layout" class="toggle-switch">
+                    </label>
+
+                    <!-- Track Token Usage -->
+                    <label
+                        class="flex items-center justify-between p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer">
+                        <div>
+                            <div class="text-gray-200 font-medium">Track Token Usage</div>
+                            <div class="text-gray-500 text-xs mt-0.5">Estimate cost based on token consumption</div>
+                        </div>
+                        <input type="checkbox" id="setting-track-usage" class="toggle-switch" checked>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="mt-6 flex gap-3 max-w-lg flex-wrap">
+                <button onclick="saveAllSettings()"
+                    class="px-4 py-2.5 rounded-xl border border-gray-700 text-gray-400 font-bold text-sm hover:border-gray-500 hover:text-gray-300 transition-all">
+                    Save
+                </button>
+                <button onclick="resetSettings()"
+                    class="px-4 py-2.5 rounded-xl border border-gray-700 text-gray-400 font-bold text-sm hover:border-gray-500 hover:text-gray-300 transition-all">
+                    Reset
+                </button>
+                <button onclick="enableAllSettings()"
+                    class="px-4 py-2.5 rounded-xl border border-gray-700 text-gray-400 font-bold text-sm hover:border-gray-500 hover:text-gray-300 transition-all">
+                    Enable All
+                </button>
+                <button onclick="disableAllSettings()"
+                    class="px-4 py-2.5 rounded-xl border border-gray-700 text-gray-400 font-bold text-sm hover:border-gray-500 hover:text-gray-300 transition-all">
+                    Disable All
+                </button>
+            </div>
+
+            <div class="mt-6 text-gray-600 text-xs">
+                Settings are saved to ~/.anti-api/settings.json. Click Save to apply changes.
             </div>
         </div>
 
@@ -391,6 +609,292 @@
         let loadingDismissed = false;
         let codexPopup = null;
         let codexPopupUrl = null;
+
+        // Tab state
+        let currentTab = 'quota';
+        let remoteLoaded = false;
+        let routingLoaded = false;
+        let lastRefreshTime = null;
+        let autoRefreshInterval = null;
+
+        // Settings with defaults (cached from server)
+        let cachedSettings = null;
+        const defaultSettings = {
+            preloadRouting: true,
+            autoNgrok: false,
+            autoOpenDashboard: true,
+            autoRefresh: true,
+            privacyMode: false,
+            compactLayout: false,
+            trackUsage: true
+        };
+
+        async function loadSettings() {
+            try {
+                const res = await fetch(`${API_BASE}/settings`);
+                if (res.ok) {
+                    cachedSettings = await res.json();
+                    return cachedSettings;
+                }
+            } catch { }
+            return { ...defaultSettings };
+        }
+
+        async function saveAllSettings() {
+            const settings = {
+                preloadRouting: document.getElementById('setting-preload-routing').checked,
+                autoNgrok: document.getElementById('setting-auto-ngrok').checked,
+                autoOpenDashboard: document.getElementById('setting-auto-open').checked,
+                autoRefresh: document.getElementById('setting-auto-refresh').checked,
+                privacyMode: document.getElementById('setting-privacy-mode').checked,
+                compactLayout: document.getElementById('setting-compact-layout').checked,
+                trackUsage: document.getElementById('setting-track-usage').checked
+            };
+            try {
+                const res = await fetch(`${API_BASE}/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                if (res.ok) {
+                    cachedSettings = await res.json();
+                    showSettingsToast('Settings saved!');
+                    applySettings(settings);
+                    // Sync to localStorage for other pages
+                    localStorage.setItem('anti-api-privacy-mode', String(settings.privacyMode));
+                    localStorage.setItem('anti-api-compact-layout', String(settings.compactLayout));
+                    window._compactLayout = settings.compactLayout;
+                    // Re-render quota to apply changes
+                    fetchQuota(false);
+                } else {
+                    showSettingsToast('Failed to save settings', true);
+                }
+            } catch (e) {
+                showSettingsToast('Failed to save settings', true);
+            }
+        }
+
+        async function resetSettings() {
+            // Update UI to defaults
+            document.getElementById('setting-preload-routing').checked = true;
+            document.getElementById('setting-auto-ngrok').checked = false;
+            document.getElementById('setting-auto-open').checked = true;
+            document.getElementById('setting-auto-refresh').checked = true;
+            document.getElementById('setting-privacy-mode').checked = false;
+            document.getElementById('setting-compact-layout').checked = false;
+            document.getElementById('setting-track-usage').checked = true;
+
+            // Save defaults to server
+            await saveAllSettings();
+            showSettingsToast('Reset to defaults');
+        }
+
+        async function enableAllSettings() {
+            document.getElementById('setting-preload-routing').checked = true;
+            document.getElementById('setting-auto-ngrok').checked = true;
+            document.getElementById('setting-auto-open').checked = true;
+            document.getElementById('setting-auto-refresh').checked = true;
+            document.getElementById('setting-privacy-mode').checked = true;
+            document.getElementById('setting-compact-layout').checked = true;
+            document.getElementById('setting-track-usage').checked = true;
+
+            await saveAllSettings();
+            showSettingsToast('All settings enabled');
+        }
+
+        async function disableAllSettings() {
+            document.getElementById('setting-preload-routing').checked = false;
+            document.getElementById('setting-auto-ngrok').checked = false;
+            document.getElementById('setting-auto-open').checked = false;
+            document.getElementById('setting-auto-refresh').checked = false;
+            document.getElementById('setting-privacy-mode').checked = false;
+            document.getElementById('setting-compact-layout').checked = false;
+            document.getElementById('setting-track-usage').checked = false;
+
+            await saveAllSettings();
+            showSettingsToast('All settings disabled');
+        }
+
+        function showSettingsToast(message, isError = false) {
+            const toast = document.getElementById('copy-toast');
+            toast.textContent = message;
+            toast.style.borderColor = isError ? '#ef4444' : '#22d3ee';
+            toast.classList.remove('opacity-0', 'translate-x-8');
+            toast.classList.add('opacity-100', 'translate-x-0');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-x-8');
+                toast.classList.remove('opacity-100', 'translate-x-0');
+            }, 2000);
+        }
+
+        function applySettings(settings) {
+            // Apply autoRefresh
+            if (settings.autoRefresh && !autoRefreshInterval) {
+                autoRefreshInterval = setInterval(() => refreshAll(false), 600000);
+            } else if (!settings.autoRefresh && autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+            // Privacy mode change triggers re-render
+            if (typeof settings.privacyMode !== 'undefined') {
+                window._privacyMode = settings.privacyMode;
+            }
+        }
+
+        // Privacy masking functions
+        function maskEmail(email) {
+            if (!window._privacyMode || !email) return email;
+            const atIndex = email.indexOf('@');
+            if (atIndex < 0) return maskUsername(email); // Not an email, treat as username
+
+            const local = email.substring(0, atIndex);
+            const domain = email.substring(atIndex + 1);
+            const dotIndex = domain.lastIndexOf('.');
+
+            // Mask local part: keep first 2 and last 2 chars
+            let maskedLocal;
+            if (local.length <= 4) {
+                maskedLocal = local[0] + '*'.repeat(local.length - 1);
+            } else {
+                maskedLocal = local.substring(0, 2) + '*'.repeat(local.length - 4) + local.substring(local.length - 2);
+            }
+
+            // Mask domain: keep only extension (after last dot)
+            const ext = dotIndex >= 0 ? domain.substring(dotIndex) : '';
+            const maskedDomain = '*'.repeat(5) + ext;
+
+            return maskedLocal + '@' + maskedDomain;
+        }
+
+        function maskUsername(name) {
+            if (!window._privacyMode || !name) return name;
+            if (name.length <= 3) return name[0] + '*'.repeat(name.length - 1);
+            return name.substring(0, 3) + '*'.repeat(Math.min(4, name.length - 3));
+        }
+
+        async function initSettings() {
+            const settings = await loadSettings();
+
+            // Update UI checkboxes
+            document.getElementById('setting-preload-routing').checked = settings.preloadRouting;
+            document.getElementById('setting-auto-ngrok').checked = settings.autoNgrok;
+            document.getElementById('setting-auto-open').checked = settings.autoOpenDashboard;
+            document.getElementById('setting-auto-refresh').checked = settings.autoRefresh;
+            document.getElementById('setting-privacy-mode').checked = settings.privacyMode;
+            document.getElementById('setting-compact-layout').checked = settings.compactLayout;
+            document.getElementById('setting-track-usage').checked = settings.trackUsage;
+            window._privacyMode = settings.privacyMode;
+            window._compactLayout = settings.compactLayout;
+            window._trackUsage = settings.trackUsage;
+
+            // Apply settings
+            if (settings.preloadRouting) {
+                setTimeout(() => {
+                    loadRoutingContent();
+                    // Sync privacy mode for preloaded routing
+                    lastRoutingPrivacyMode = localStorage.getItem('anti-api-privacy-mode') || 'false';
+                }, 1500);
+            }
+            if (settings.autoRefresh) {
+                autoRefreshInterval = setInterval(() => refreshAll(false), 600000);
+            }
+        }
+
+        // Convert timestamp to relative time format
+        function getRelativeTime(date) {
+            const now = new Date();
+            const diffMs = now - date;
+            const diffSec = Math.floor(diffMs / 1000);
+            const diffMin = Math.floor(diffSec / 60);
+            const diffHr = Math.floor(diffMin / 60);
+            const diffDay = Math.floor(diffHr / 24);
+
+            if (diffSec < 60) return 'just now';
+            if (diffMin < 60) return `${diffMin}min ago`;
+            if (diffHr < 24) return `${diffHr}hr ago`;
+            return `${diffDay}d ago`;
+        }
+
+        // Update last-updated display
+        function updateLastUpdatedDisplay() {
+            if (!lastRefreshTime) return;
+            document.getElementById('last-updated').innerHTML =
+                `Updated <span class="font-bold text-gray-400">${getRelativeTime(lastRefreshTime)}</span>`;
+        }
+
+        // Update relative time every minute
+        setInterval(updateLastUpdatedDisplay, 60000);
+
+        // Tab switching function
+        let lastRoutingPrivacyMode = null; // Track privacy mode when routing was last loaded
+
+        function switchTab(tabName) {
+            currentTab = tabName;
+
+            // Update tab button styles
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('text-white', 'bg-gradient-to-r', 'from-cyan-500/30', 'to-blue-500/30', 'border', 'border-cyan-500/50');
+                btn.classList.add('text-gray-400');
+            });
+
+            const activeTab = document.getElementById(`tab-${tabName}`);
+            if (activeTab) {
+                activeTab.classList.remove('text-gray-400');
+                activeTab.classList.add('text-white', 'bg-gradient-to-r', 'from-cyan-500/30', 'to-blue-500/30', 'border', 'border-cyan-500/50');
+            }
+
+            // Show/hide tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+
+            const activeContent = document.getElementById(`tab-content-${tabName}`);
+            if (activeContent) {
+                activeContent.classList.remove('hidden');
+            }
+
+            // Lazy load Remote content
+            if (tabName === 'remote' && !remoteLoaded) {
+                loadRemoteContent();
+            }
+
+            // Lazy load Routing content or reload if privacy changed
+            if (tabName === 'routing') {
+                const currentPrivacy = localStorage.getItem('anti-api-privacy-mode') || 'false';
+                if (!routingLoaded) {
+                    loadRoutingContent();
+                    lastRoutingPrivacyMode = currentPrivacy;
+                } else if (lastRoutingPrivacyMode !== currentPrivacy) {
+                    // Privacy mode changed, reload iframe
+                    const iframe = document.getElementById('routing-iframe');
+                    if (iframe) {
+                        iframe.contentWindow.location.reload();
+                    }
+                    lastRoutingPrivacyMode = currentPrivacy;
+                }
+            }
+
+            // Load Usage data when switching to usage tab
+            if (tabName === 'usage') {
+                fetchUsageData(false);
+            }
+        }
+
+        function loadRemoteContent() {
+            const iframe = document.getElementById('remote-iframe');
+            if (iframe && !iframe.src.includes('/remote-panel')) {
+                iframe.src = '/remote-panel';
+            }
+            remoteLoaded = true;
+        }
+
+        function loadRoutingContent() {
+            const iframe = document.getElementById('routing-iframe');
+            if (iframe && !iframe.src.includes('/routing')) {
+                iframe.src = '/routing';
+            }
+            routingLoaded = true;
+        }
 
         // 3D 倾斜效果
         function init3DEffect() {
@@ -522,8 +1026,27 @@
 
         function renderAccountCard(account) {
             const provider = account.provider || 'antigravity';
-            const bars = account.bars || [];
+            let bars = account.bars || [];
             const cardId = `${provider}-${account.accountId}`;
+
+            // Compact layout: for Antigravity, show only 2 bars (claude_gpt + lower of gpro/gflash)
+            if (window._compactLayout && provider === 'antigravity' && bars.length >= 3) {
+                const claudeGpt = bars.find(b => b.key === 'claude_gpt');
+                const gpro = bars.find(b => b.key === 'gpro');
+                const gflash = bars.find(b => b.key === 'gflash');
+
+                // Pick the Gemini bar with lower percentage
+                let geminiBar = null;
+                if (gpro && gflash) {
+                    geminiBar = gpro.percentage <= gflash.percentage ? gpro : gflash;
+                    geminiBar = { ...geminiBar, label: 'gemini' }; // Unified label
+                } else {
+                    geminiBar = gpro || gflash;
+                    if (geminiBar) geminiBar = { ...geminiBar, label: 'gemini' };
+                }
+
+                bars = [claudeGpt, geminiBar].filter(Boolean);
+            }
 
             const barHtml = bars.map(bar => {
                 const percentage = Math.max(0, Math.min(100, Math.round(bar.percentage || 0)));
@@ -542,14 +1065,18 @@
                 `;
             }).join('');
 
+            // Apply privacy masking based on provider
+            const displayName = account.displayName || account.accountId;
+            const maskedName = provider === 'copilot' ? maskUsername(displayName) : maskEmail(displayName);
+
             return `
                 <div class="card-3d" data-provider="${provider}" data-card-id="${cardId}">
                     <div class="card-inner rounded-2xl p-5">
                         <div class="flex items-center justify-between mb-4">
-                            <div class="text-sm font-bold text-gray-200">${account.displayName || account.accountId}</div>
+                            <div class="text-sm font-bold text-gray-200">${maskedName}</div>
                             <div class="flex items-center gap-2">
                                 <span class="text-[10px] text-gray-500 uppercase tracking-[0.2em]">${provider}</span>
-                                <button onclick="deleteAccount('${account.accountId}', '${account.displayName || account.accountId}')" 
+                                <button onclick="deleteAccount('${account.accountId}', '${displayName}')" 
                                         class="text-gray-600 hover:text-red-500 transition-colors text-xs px-1" title="Remove account">✕</button>
                             </div>
                         </div>
@@ -567,8 +1094,8 @@
                 if (data.error) {
                     document.getElementById('quota-grid').innerHTML = `
                         <div class="text-center py-12">
-                            <p class="text-gray-400 mb-2">📊 配额详情不可用</p>
-                            <p class="text-gray-600 text-sm">需要完成认证或配额接口可用</p>
+                            <p class="text-gray-400 mb-2">📊 Quota details unavailable</p>
+                            <p class="text-gray-600 text-sm">Authentication required or quota API unavailable</p>
                         </div>
                     `;
                     return;
@@ -578,8 +1105,11 @@
                 const planInfo = document.getElementById('plan-info');
                 planInfo.innerHTML = `<span class="text-gray-300">${accounts.length} account(s)</span> <span class="text-gray-600 text-xs">• Multi-provider quota view</span>`;
 
+                // Log refresh success
+                console.log(`\x1b[32m200: Quota refreshed (${accounts.length} accounts)\x1b[0m`);
+
                 if (showToastMsg) {
-                    showToast('Refreshed!');
+                    showToast('✓ Refreshed');
                 }
 
                 const grid = document.getElementById('quota-grid');
@@ -591,15 +1121,22 @@
                         </div>
                     `;
                 } else {
-                    grid.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    grid.innerHTML = `<div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                         ${accounts.map(renderAccountCard).join('')}
                     </div>`;
                 }
 
                 init3DEffect();
 
-                document.getElementById('last-updated').innerHTML =
-                    `Last updated: <span class="font-bold text-gray-300">${new Date().toLocaleTimeString()}</span>`;
+                lastRefreshTime = new Date();
+                updateLastUpdatedDisplay();
+
+                // Show/hide Usage tab based on tracking setting
+                if (window._trackUsage) {
+                    document.getElementById('tab-usage').classList.remove('hidden');
+                } else {
+                    document.getElementById('tab-usage').classList.add('hidden');
+                }
 
             } catch (error) {
                 document.getElementById('plan-info').innerHTML =
@@ -607,7 +1144,7 @@
                 document.getElementById('quota-grid').innerHTML = `
                     <div class="text-center py-12">
                         <p class="text-gray-500 mb-4">Unable to connect to ${API_BASE}</p>
-                        <button onclick="fetchQuota()" 
+                        <button onclick="retryFetchQuota(this)" 
                                 class="px-6 py-2 rounded-lg font-bold text-gray-300"
                                 style="background: var(--dark-purple);">
                             Retry
@@ -617,6 +1154,20 @@
             } finally {
                 hideLoadingOnce();
             }
+        }
+
+        function retryFetchQuota(button) {
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Connecting...';
+                button.style.opacity = '0.7';
+                button.style.cursor = 'wait';
+            }
+            const planInfo = document.getElementById('plan-info');
+            if (planInfo) {
+                planInfo.innerHTML = `<span class="text-gray-400">Connecting...</span>`;
+            }
+            fetchQuota();
         }
 
         // 隧道状态变量
@@ -878,18 +1429,254 @@
         // Initial load
         refreshAll(false);
         init3DEffect();
+        initSettings();
 
-        // Auto refresh every 10 minutes
-        setInterval(() => {
-            refreshAll(false);
-        }, 600000);
+        // 🆕 Auto-refresh when returning from OAuth window
+        // Attach click handlers to Add buttons to track login
+        document.querySelectorAll('[onclick*="startProviderLogin"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                window._loginInProgress = true;
+                console.log('[Quota] Login started, will refresh on return');
+            });
+        });
+
+        // Refresh when page becomes visible again (user returns from OAuth)
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && window._loginInProgress) {
+                console.log('[Quota] Page visible after login, refreshing...');
+                setTimeout(() => {
+                    fetchQuota(true);
+                    window._loginInProgress = false;
+                }, 500);
+            }
+        });
+
+        // Also refresh on window focus
+        window.addEventListener('focus', () => {
+            if (window._loginInProgress) {
+                console.log('[Quota] Window focused after login, refreshing...');
+                setTimeout(() => {
+                    fetchQuota(true);
+                    window._loginInProgress = false;
+                }, 500);
+            }
+        });
 
         async function refreshAll(showToastMsg = false) {
-            await Promise.all([
-                fetchQuota(showToastMsg),
-                checkAuthStatus(),
-                checkTunnelStatus(),
-            ]);
+            await fetchQuota(showToastMsg);
+            if (window._trackUsage) {
+                await fetchUsageData(showToastMsg);
+            }
+        }
+
+        // Usage tracking functions
+        let usageLoading = false;
+        async function fetchUsageData(showToast = true) {
+            if (usageLoading) return;
+            usageLoading = true;
+
+            // Immediate feedback
+            if (showToast) showSettingsToast('Refreshing...');
+
+            // Show loading state
+            const totalEl = document.getElementById('usage-total-large');
+            const gridEl = document.getElementById('usage-model-list');
+            if (totalEl) totalEl.textContent = '...';
+            if (gridEl) gridEl.innerHTML = '<div class="text-gray-500 text-sm text-center py-4">Loading...</div>';
+
+            try {
+                const res = await fetch(`${API_BASE}/usage`);
+                if (!res.ok) {
+                    if (showToast) showSettingsToast('Failed to load usage', true);
+                    return;
+                }
+                const data = await res.json();
+                renderUsageData(data);
+                if (showToast) showSettingsToast('Usage refreshed');
+            } catch (e) {
+                console.warn('Failed to fetch usage data:', e);
+                if (showToast) showSettingsToast('Failed to load usage', true);
+            } finally {
+                usageLoading = false;
+            }
+        }
+
+        function renderUsageData(data) {
+            const grid = document.getElementById('usage-model-list');
+            const models = data.models || [];
+
+            if (models.length === 0) {
+                grid.innerHTML = `<div class="text-gray-500 text-sm text-center py-4">No usage data yet</div>`;
+                document.getElementById('usage-total-large').textContent = '$0.00';
+                const todayCostEl = document.getElementById('usage-today-cost');
+                if (todayCostEl) todayCostEl.textContent = '$0.00';
+                return;
+            }
+
+            grid.innerHTML = models.map(m => {
+                const inputK = Math.round(m.input / 1000);
+                const outputK = Math.round(m.output / 1000);
+                const inputM = (m.input / 1_000_000).toFixed(2);
+                const outputM = (m.output / 1_000_000).toFixed(2);
+                const inputDisplay = inputK >= 1000 ? inputM + 'M' : inputK + 'K';
+                const outputDisplay = outputK >= 1000 ? outputM + 'M' : outputK + 'K';
+                const color = getModelColor(m.model);
+                return `
+                    <div class="py-1.5 border-b border-gray-800/30 last:border-0 flex items-center" style="gap: 10px;">
+                        <span class="w-3.5 h-3.5 rounded-sm flex-shrink-0" style="background: ${color}"></span>
+                        <span class="text-sm font-semibold text-gray-200">${m.model}</span>
+                        <span class="text-gray-600">›</span>
+                        <span style="font-size: 12px;" class="text-gray-400">In: ${inputDisplay}</span>
+                        <span style="font-size: 12px;" class="text-cyan-400 font-medium">$${m.inputCost.toFixed(2)}</span>
+                        <span style="font-size: 12px;" class="text-gray-400 ml-2">Out: ${outputDisplay}</span>
+                        <span style="font-size: 12px;" class="text-cyan-400 font-medium">$${m.outputCost.toFixed(2)}</span>
+                        <span style="font-size: 13px;" class="text-cyan-400 ml-auto font-bold">$${m.cost.toFixed(2)}</span>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('usage-total-large').textContent = `$${data.totalCost.toFixed(2)}`;
+
+            // Calculate and display today's cost (use local date to match backend)
+            const now = new Date();
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const todayCost = (data.daily || []).find(d => d.date === today)?.cost || 0;
+            const todayCostEl = document.getElementById('usage-today-cost');
+            if (todayCostEl) {
+                todayCostEl.textContent = `$${todayCost.toFixed(2)}`;
+            }
+
+            // Render charts
+            renderCharts(data);
+        }
+
+        // Chart instances for cleanup
+        let dailyChartInstance = null;
+        let modelChartInstance = null;
+
+        // Color palette based on model provider
+        function getModelColor(model) {
+            const m = model.toLowerCase();
+            if (m.includes('gpt') || m.includes('o1') || m.includes('o3') || m.includes('o4')) return '#22d3ee'; // cyan
+            if (m.includes('claude') || m.includes('opus') || m.includes('sonnet')) return '#4796E3'; // blue
+            if (m.includes('gemini') || m.includes('flash') || m.includes('pro')) return '#22c55e'; // green
+            return '#6b7280'; // gray
+        }
+
+        function renderCharts(data) {
+            // Daily Bar Chart
+            const dailyCtx = document.getElementById('daily-chart');
+            if (!dailyCtx) return;
+
+            // Destroy old chart if exists
+            if (dailyChartInstance) {
+                dailyChartInstance.destroy();
+            }
+
+            const dailyData = data.daily || [];
+            const labels = dailyData.map(d => {
+                const date = new Date(d.date);
+                return `${date.getMonth() + 1}/${date.getDate()}`;
+            });
+            const values = dailyData.map(d => d.cost);
+
+            dailyChartInstance = new Chart(dailyCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels.length > 0 ? labels : ['No data'],
+                    datasets: [{
+                        data: values.length > 0 ? values : [0],
+                        backgroundColor: 'rgba(110, 231, 255, 0.6)',
+                        borderColor: 'rgba(110, 231, 255, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        barPercentage: 0.7,
+                        categoryPercentage: 0.8,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function (context) {
+                                    return '$' + context.raw.toFixed(2);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#9ca3af', font: { size: 13 } }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: {
+                                color: '#9ca3af',
+                                font: { size: 13 },
+                                callback: v => '$' + v.toFixed(2)
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Model Pie Chart
+            const modelCtx = document.getElementById('model-chart');
+            if (!modelCtx) return;
+
+            if (modelChartInstance) {
+                modelChartInstance.destroy();
+            }
+
+            const models = data.models || [];
+            const pieLabels = models.map(m => m.model);
+            const pieValues = models.map(m => m.cost);
+            const pieColors = models.map(m => getModelColor(m.model));
+
+            modelChartInstance = new Chart(modelCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: pieLabels.length > 0 ? pieLabels : ['No data'],
+                    datasets: [{
+                        data: pieValues.length > 0 ? pieValues : [1],
+                        backgroundColor: pieColors.length > 0 ? pieColors : ['#374151'],
+                        borderWidth: 0,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '50%',
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function (context) {
+                                    return context.label + ': $' + context.raw.toFixed(2);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function resetUsageData() {
+            if (!confirm('Clear all usage data?')) return;
+            try {
+                await fetch(`${API_BASE}/usage/reset`, { method: 'POST' });
+                await fetchUsageData(false);
+                showSettingsToast('Usage data cleared');
+            } catch (e) {
+                showSettingsToast('Failed to reset usage', true);
+            }
         }
     </script>
 </body>

@@ -12,16 +12,88 @@ import { rateLimiter } from "~/lib/rate-limiter"
 import { determineRetryStrategy, applyRetryDelay } from "~/lib/retry"
 import { UpstreamError } from "~/lib/error"
 import { cleanJsonSchemaForGemini } from "~/lib/json-schema-cleaner"
+import { formatLogTime, setRequestLogContext } from "~/lib/logger"
 
 accountManager.load()
 
 const ANTIGRAVITY_BASE_URLS = [
-    "https://cloudcode-pa.googleapis.com",
+    "https://daily-cloudcode-pa.googleapis.com",       // v2.0.1: 优先使用 daily 端点（更稳定）
     "https://daily-cloudcode-pa.sandbox.googleapis.com",
+    "https://cloudcode-pa.googleapis.com",
 ]
 const STREAM_ENDPOINT = "/v1internal:streamGenerateContent"
 const DEFAULT_USER_AGENT = "antigravity/1.11.9 windows/amd64"
-const MAX_RETRY_ATTEMPTS = 5
+const MAX_RETRY_ATTEMPTS = 1  // v2.0.1 恢复：简化重试，避免级联 429
+const MAX_WAIT_BEFORE_SWITCH_MS = 5000  // 最多等待5秒再切换账号
+
+/**
+ * 从 429 错误中解析重试延迟时间（毫秒）
+ * 支持格式：quotaResetDelay "42s", "2m30s", "1h", 或 Retry-After header
+ */
+function parseRetryDelay(errorText: string, retryAfterHeader?: string): number | null {
+    // 1. 优先尝试从 Retry-After header 解析
+    if (retryAfterHeader) {
+        const seconds = parseInt(retryAfterHeader, 10)
+        if (!isNaN(seconds) && seconds > 0) {
+            return seconds * 1000
+        }
+    }
+
+    // 2. 尝试从 JSON 中解析 quotaResetDelay
+    const trimmed = errorText.trim()
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        try {
+            const json = JSON.parse(trimmed)
+            const delay = json?.error?.details?.[0]?.metadata?.quotaResetDelay
+            if (typeof delay === "string") {
+                return parseDurationString(delay)
+            }
+        } catch {
+            // ignore parse errors
+        }
+    }
+
+    // 3. 正则匹配常见模式
+    const patterns = [
+        /try again in (\d+)m\s*(\d+)s/i,
+        /try again in (\d+)s/i,
+        /backoff for (\d+)s/i,
+        /wait (\d+)s/i,
+        /retry after (\d+) second/i,
+    ]
+
+    for (const pattern of patterns) {
+        const match = errorText.match(pattern)
+        if (match) {
+            if (match[2]) {
+                // "Xm Ys" format
+                return (parseInt(match[1]) * 60 + parseInt(match[2])) * 1000
+            }
+            return parseInt(match[1]) * 1000
+        }
+    }
+
+    return null
+}
+
+/**
+ * 解析时长字符串，如 "42s", "2m30s", "1h30m", "500ms"
+ */
+function parseDurationString(s: string): number | null {
+    const hourMatch = s.match(/(\d+)h/)
+    const minMatch = s.match(/(\d+)m(?!s)/)
+    const secMatch = s.match(/(\d+(?:\.\d+)?)s(?!$|[a-z])/i) || s.match(/(\d+(?:\.\d+)?)s$/)
+    const msMatch = s.match(/(\d+)ms/)
+
+    const hours = hourMatch ? parseInt(hourMatch[1]) : 0
+    const minutes = minMatch ? parseInt(minMatch[1]) : 0
+    const seconds = secMatch ? parseFloat(secMatch[1]) : 0
+    const ms = msMatch ? parseInt(msMatch[1]) : 0
+
+    const totalMs = (hours * 3600 + minutes * 60 + Math.ceil(seconds)) * 1000 + ms
+
+    return totalMs > 0 ? totalMs : null
+}
 
 const MODEL_MAPPING: Record<string, string> = {
     "claude-sonnet-4-5": "claude-sonnet-4-5",
@@ -85,6 +157,103 @@ function extractTextContent(content: any): string {
     }
     if (content?.text) return content.text
     return JSON.stringify(content)
+}
+
+function mergeToolResultContent(content: unknown, isError?: boolean): string {
+    if (typeof content === "string") return content
+    if (Array.isArray(content)) {
+        const merged = content
+            .map((block) => {
+                if (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") {
+                    return block.text
+                }
+                if (block && typeof block === "object" && typeof block.text === "string") {
+                    return block.text
+                }
+                return ""
+            })
+            .filter(Boolean)
+            .join("\n")
+        if (merged.trim()) return merged
+    }
+    if (content != null) return JSON.stringify(content)
+    return isError ? "Tool execution failed with no output." : "Command executed successfully."
+}
+
+function generateToolUseId(): string {
+    return `toolu_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`
+}
+
+function parseFunctionCallArgs(args: unknown): any {
+    if (args == null) return {}
+    if (typeof args === "string") {
+        try {
+            return JSON.parse(args)
+        } catch {
+            return { value: args }
+        }
+    }
+    return args
+}
+
+function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: Map<string, string>): any[] {
+    if (typeof content === "string") {
+        return [{ text: content }]
+    }
+
+    if (!Array.isArray(content)) {
+        return [{ text: extractTextContent(content) }]
+    }
+
+    const parts: any[] = []
+
+    for (const block of content) {
+        if (!block || typeof block !== "object") continue
+
+        if (block.type === "text") {
+            parts.push({ text: block.text || "" })
+            continue
+        }
+
+        if (block.type === "image" && block.source?.type === "base64") {
+            parts.push({
+                inlineData: {
+                    mimeType: block.source.media_type,
+                    data: block.source.data,
+                },
+            })
+            continue
+        }
+
+        if (block.type === "tool_use") {
+            const toolId = block.id || generateToolUseId()
+            const toolName = block.name || toolId
+            toolIdToName.set(toolId, toolName)
+            parts.push({
+                functionCall: {
+                    name: toolName,
+                    args: block.input || {},
+                    id: toolId,
+                },
+            })
+            continue
+        }
+
+        if (block.type === "tool_result") {
+            const toolUseId = block.tool_use_id || ""
+            const toolName = toolIdToName.get(toolUseId) || toolUseId || "tool"
+            const merged = mergeToolResultContent(block.content, (block as any).is_error)
+            const functionResponse: any = {
+                name: toolName,
+                response: { result: merged },
+            }
+            if (toolUseId) functionResponse.id = toolUseId
+            parts.push({ functionResponse })
+            continue
+        }
+    }
+
+    return parts.length > 0 ? parts : [{ text: "[No text]" }]
 }
 
 function cleanJsonSchema(schema: any): any {
@@ -165,9 +334,10 @@ You are pair programming with a USER to solve their coding task. The task may re
 }
 
 function claudeToAntigravity(model: string, messages: ClaudeMessage[], tools?: ClaudeTool[]): any {
+    const toolIdToName = new Map<string, string>()
     const contents = messages.map((msg) => ({
         role: msg.role === "assistant" ? "model" : msg.role,
-        parts: [{ text: extractTextContent(msg.content) }],
+        parts: buildAntigravityParts(msg.content, toolIdToName),
     }))
 
     const sessionId = generateStableSessionId(messages)
@@ -231,11 +401,12 @@ function parseApiResponse(rawResponse: string): ChatResponse {
             }
             if (part.functionCall) {
                 hasToolUse = true
+                const input = parseFunctionCallArgs(part.functionCall.args)
                 contentBlocks.push({
                     type: "tool_use",
-                    id: part.functionCall.id || "toolu_" + crypto.randomUUID().slice(0, 8),
+                    id: part.functionCall.id || generateToolUseId(),
                     name: part.functionCall.name,
-                    input: part.functionCall.args || {}
+                    input,
                 })
             }
         }
@@ -251,8 +422,9 @@ function parseApiResponse(rawResponse: string): ChatResponse {
     }
 }
 
+// 429 is handled separately - it's account-specific, not endpoint-specific
 function shouldTryNextEndpoint(statusCode: number): boolean {
-    return statusCode === 429 || statusCode === 408 || statusCode === 404 || statusCode >= 500
+    return statusCode === 408 || statusCode === 404 || statusCode >= 500
 }
 
 async function sendRequestSse(
@@ -260,10 +432,10 @@ async function sendRequestSse(
     antigravityRequest: any,
     accessToken: string,
     accountId?: string,
-    allowRotation: boolean = true
+    allowRotation: boolean = true,
+    modelName?: string
 ): Promise<string> {
-    consola.info("Request body:", JSON.stringify(antigravityRequest, null, 2).substring(0, 500))
-
+    const startTime = Date.now()
     let lastError: Error | null = null
     let lastStatusCode = 0
     let lastErrorText = ""
@@ -275,7 +447,6 @@ async function sendRequestSse(
         // 锁已在 handler.ts HTTP 层获取，这里不需要
         for (const baseUrl of ANTIGRAVITY_BASE_URLS) {
             const url = baseUrl + endpoint + "?alt=sse"
-            consola.debug("[SSE] Trying:", url)
             try {
                 const response = await fetch(url, {
                     method: "POST",
@@ -289,8 +460,14 @@ async function sendRequestSse(
                 })
 
                 if (response.ok) {
-                    consola.success("SSE API successful on:", baseUrl)
                     if (currentAccountId) accountManager.markSuccess(currentAccountId)
+
+                    // Log 200 success with actual account used and elapsed time (green)
+                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+                    const account = currentAccountId ? await accountManager.getAccountById(currentAccountId) : null
+                    const accountPart = account?.email ? ` >> ${account.email}` : (currentAccountId ? ` >> ${currentAccountId}` : "")
+                    console.log(`\x1b[32m[${formatLogTime()}] 200: from ${modelName || "unknown"} > Antigravity${accountPart} (${elapsed}s)\x1b[0m`)
+
                     return await response.text()
                 }
 
@@ -300,21 +477,80 @@ async function sendRequestSse(
                 consola.warn("SSE error " + response.status, lastErrorText.substring(0, 200))
 
                 if (lastStatusCode === 429 && currentAccountId) {
+                    // 🆕 解析等待时间，如果无法解析则使用默认 2 秒
+                    const parsedDelay = parseRetryDelay(lastErrorText, lastRetryAfterHeader)
+                    const retryDelayMs = parsedDelay ?? 2000  // 默认 2 秒
+
+                    // 🆕 如果等待时间短（<= 5s）且还有重试次数，等待后重试同一账号
+                    if (retryDelayMs <= MAX_WAIT_BEFORE_SWITCH_MS && attempt < MAX_RETRY_ATTEMPTS - 1) {
+                        // 🆕 关键修复：在等待期间临时标记账号为限流，防止其他并发请求选择它
+                        const account = await accountManager.getAccountById(currentAccountId)
+                        if (account) {
+                            (account as any).rateLimitedUntil = Date.now() + retryDelayMs + 500
+                        }
+
+                        await new Promise(resolve => setTimeout(resolve, retryDelayMs + 200)) // 加 200ms 缓冲
+
+                        // 🆕 等待结束后清除临时限流标记
+                        if (account) {
+                            (account as any).rateLimitedUntil = null
+                        }
+
+                        lastError = new Error("429 - waited and retry")
+                        break // 跳出 endpoint 循环，进入下一轮 attempt
+                    }
+
+                    // 等待时间太长或无法解析，标记限流并尝试切换账号
                     accountManager.markRateLimitedFromError(
                         currentAccountId,
                         lastStatusCode,
                         lastErrorText,
                         lastRetryAfterHeader
                     )
+
+                    // 粘性策略：将失败的账户移到队尾
+                    accountManager.moveToEndOfQueue(currentAccountId)
+
                     if (allowRotation && accountManager.count() > 1) {
                         const next = await accountManager.getNextAvailableAccount(true)
                         if (next && next.accountId !== currentAccountId) {
                             currentAccessToken = next.accessToken
                             currentAccountId = next.accountId
                             antigravityRequest.project = next.projectId
-                            continue
+                            // Break out of endpoint loop to retry with new account
+                            lastError = new Error("429 - switched account")
+                            break
                         }
                     }
+                    // 无法切换账号，抛出错误让 router 处理
+                    throw new UpstreamError("antigravity", 429, lastErrorText, lastRetryAfterHeader)
+                }
+
+                // 🆕 401 处理：刷新 token 并重试
+                if (lastStatusCode === 401 && currentAccountId) {
+                    try {
+                        const refreshed = await accountManager.getAccountById(currentAccountId)
+                        if (refreshed) {
+                            currentAccessToken = refreshed.accessToken
+                            // Break endpoint loop to retry with new token
+                            lastError = new Error("401 - token refreshed")
+                            break
+                        }
+                    } catch (e) {
+                        consola.warn(`Failed to refresh token for ${currentAccountId}:`, e)
+                    }
+                    // If refresh failed, try next account
+                    if (allowRotation && accountManager.count() > 1) {
+                        const next = await accountManager.getNextAvailableAccount(true)
+                        if (next && next.accountId !== currentAccountId) {
+                            currentAccessToken = next.accessToken
+                            currentAccountId = next.accountId
+                            antigravityRequest.project = next.projectId
+                            lastError = new Error("401 - switched account")
+                            break
+                        }
+                    }
+                    throw new UpstreamError("antigravity", 401, lastErrorText, lastRetryAfterHeader)
                 }
 
                 if (shouldTryNextEndpoint(lastStatusCode)) {
@@ -324,10 +560,19 @@ async function sendRequestSse(
 
                 throw new UpstreamError("antigravity", response.status, lastErrorText, lastRetryAfterHeader)
             } catch (e) {
+                // 🆕 UpstreamError (包括 429) 立即重新抛出，不继续尝试
                 if (e instanceof UpstreamError) throw e
                 lastError = e as Error
                 continue
             }
+        }
+
+        // 🆕 如果是账户切换、token 刷新或已等待重试，直接继续下一轮 attempt（不等待 delay）
+        if (lastError?.message === "429 - switched account" ||
+            lastError?.message === "429 - waited and retry" ||
+            lastError?.message === "401 - token refreshed" ||
+            lastError?.message === "401 - switched account") {
+            continue
         }
 
         if (lastStatusCode > 0) {
@@ -341,6 +586,143 @@ async function sendRequestSse(
         throw new UpstreamError("antigravity", lastStatusCode, lastErrorText, lastRetryAfterHeader)
     }
     throw lastError || new Error("All endpoints failed")
+}
+
+/**
+ * 🆕 真正的流式 SSE 请求 - 边读边 yield
+ * 参考 proj-1 的 create_claude_sse_stream 实现
+ * 增加了超时保护和错误恢复
+ */
+async function* sendRequestSseStreaming(
+    endpoint: string,
+    antigravityRequest: any,
+    accessToken: string,
+    accountId?: string,
+    modelName?: string
+): AsyncGenerator<string, void, unknown> {
+    const startTime = Date.now()
+    const READ_TIMEOUT_MS = 60000  // 每次读取最多等待 60 秒
+
+    for (const baseUrl of ANTIGRAVITY_BASE_URLS) {
+        const url = baseUrl + endpoint + "?alt=sse"
+
+        try {
+            const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + accessToken,
+                    "User-Agent": DEFAULT_USER_AGENT,
+                    "Accept": "text/event-stream",
+                },
+                body: JSON.stringify(antigravityRequest),
+            })
+
+            if (!response.ok) {
+                const errorText = await response.text()
+                if (response.status === 429 && accountId) {
+                    accountManager.markRateLimitedFromError(accountId, response.status, errorText)
+                    accountManager.moveToEndOfQueue(accountId)
+                }
+                throw new UpstreamError("antigravity", response.status, errorText, response.headers.get("retry-after") || undefined)
+            }
+
+            if (accountId) accountManager.markSuccess(accountId)
+
+            const reader = response.body?.getReader()
+            if (!reader) {
+                throw new Error("Response body is not readable")
+            }
+
+            const decoder = new TextDecoder()
+            let buffer = ""
+            let hasYielded = false
+
+            try {
+                while (true) {
+                    // 🆕 添加读取超时保护
+                    const readPromise = reader.read()
+                    const timeoutPromise = new Promise<never>((_, reject) => {
+                        setTimeout(() => reject(new Error("Stream read timeout")), READ_TIMEOUT_MS)
+                    })
+
+                    let result: any
+                    try {
+                        result = await Promise.race([readPromise, timeoutPromise])
+                    } catch (readError) {
+                        // 超时或网络错误
+                        consola.warn("[SSE Streaming] Read error:", readError)
+                        break
+                    }
+
+                    const { done, value } = result
+                    if (done) break
+
+                    buffer += decoder.decode(value, { stream: true })
+
+                    // 按行处理完整的 SSE 事件
+                    const lines = buffer.split("\n")
+                    buffer = lines.pop() || ""  // 保留不完整的最后一行
+
+                    for (const line of lines) {
+                        const trimmed = line.trim()
+                        if (!trimmed.startsWith("data: ")) continue
+
+                        const jsonStr = trimmed.slice(6).trim()
+                        if (!jsonStr || jsonStr === "[DONE]") continue
+
+                        try {
+                            const parsed = JSON.parse(jsonStr)
+                            yield JSON.stringify(parsed)
+                            hasYielded = true
+                        } catch {
+                            // 忽略非 JSON 行
+                        }
+                    }
+                }
+
+                // 处理缓冲区中剩余的数据
+                if (buffer.trim().startsWith("data: ")) {
+                    const jsonStr = buffer.trim().slice(6).trim()
+                    if (jsonStr && jsonStr !== "[DONE]") {
+                        try {
+                            const parsed = JSON.parse(jsonStr)
+                            yield JSON.stringify(parsed)
+                            hasYielded = true
+                        } catch {
+                            // 忽略
+                        }
+                    }
+                }
+
+                // 如果没有产出任何数据，抛出错误
+                if (!hasYielded) {
+                    throw new Error("Stream completed without yielding any data")
+                }
+
+            } finally {
+                try {
+                    reader.releaseLock()
+                } catch {
+                    // 忽略 releaseLock 错误
+                }
+            }
+
+            // 成功完成 - 在 return 之前记录日志
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+            const account = accountId ? await accountManager.getAccountById(accountId) : null
+            const accountPart = account?.email ? ` >> ${account.email}` : (accountId ? ` >> ${accountId}` : "")
+            console.log(`\x1b[32m[${formatLogTime()}] 200: from ${modelName || "unknown"} > Antigravity${accountPart} (${elapsed}s)\x1b[0m`)
+            return
+
+        } catch (error) {
+            if (error instanceof UpstreamError) throw error
+            consola.warn("[SSE Streaming] Error on", baseUrl, error)
+            continue
+        }
+    }
+
+    throw new Error("All endpoints failed")
 }
 
 function collectSseChunks(rawSse: string): any[] {
@@ -359,9 +741,8 @@ function collectSseChunks(rawSse: string): any[] {
         try {
             const parsed = JSON.parse(jsonStr)
             chunks.push(parsed)
-        } catch (e) {
+        } catch {
             // 忽略解析失败的行
-            consola.debug(`[SSE] Failed to parse line: ${jsonStr.substring(0, 100)}`)
         }
     }
 
@@ -379,28 +760,33 @@ export async function createChatCompletionWithOptions(
     let accessToken: string
     let accountId: string | undefined
     let projectId: string | undefined
+    let accountEmail: string | undefined
 
     if (options.accountId) {
         const account = await accountManager.getAccountById(options.accountId)
         if (!account) {
-            throw new Error(`Account not found: ${options.accountId}`)
+            throw new UpstreamError("antigravity", 429, `Account unavailable: ${options.accountId}`)
         }
         accessToken = account.accessToken
         accountId = account.accountId
         projectId = account.projectId
-        consola.debug("Using account:", account.email)
+        accountEmail = account.email
     } else {
         const account = await accountManager.getNextAvailableAccount()
         if (account) {
             accessToken = account.accessToken
             accountId = account.accountId
             projectId = account.projectId
-            consola.debug("Using account:", account.email)
+            accountEmail = account.email
         } else {
             accessToken = await getAccessToken()
             projectId = state.cloudaicompanionProject || undefined
+            accountEmail = state.userEmail || undefined
         }
     }
+
+    // Set log context for request logging
+    setRequestLogContext({ model: request.model, provider: "antigravity", account: accountEmail })
 
     const antigravityRequest = claudeToAntigravity(
         getAntigravityModelName(request.model),
@@ -415,12 +801,25 @@ export async function createChatCompletionWithOptions(
         antigravityRequest,
         accessToken,
         accountId,
-        options.allowRotation ?? true
+        options.allowRotation ?? true,
+        request.model
     )
     const sseChunks = collectSseChunks(rawSse)
     const rawResponse = sseChunks.length > 0 ? JSON.stringify(sseChunks) : rawSse
 
-    return parseApiResponse(rawResponse)
+    const result = parseApiResponse(rawResponse)
+
+    // Record usage (fire-and-forget) - use actual native model ID
+    const inputTokens = result.usage?.inputTokens || 0
+    const outputTokens = result.usage?.outputTokens || 0
+    const actualModelId = getAntigravityModelName(request.model)
+    if (inputTokens > 0 || outputTokens > 0) {
+        import("~/services/usage-tracker").then(({ recordUsage }) => {
+            recordUsage(actualModelId, inputTokens, outputTokens)
+        }).catch(() => { })
+    }
+
+    return result
 }
 
 export async function* createChatCompletionStream(request: ChatRequest): AsyncGenerator<string, void, unknown> {
@@ -434,24 +833,28 @@ export async function* createChatCompletionStreamWithOptions(
     let accessToken: string
     let accountId: string | undefined
     let projectId: string | undefined
+    let accountEmail: string | undefined
 
     if (options.accountId) {
         const account = await accountManager.getAccountById(options.accountId)
         if (!account) {
-            throw new Error(`Account not found: ${options.accountId}`)
+            throw new UpstreamError("antigravity", 429, `Account unavailable: ${options.accountId}`)
         }
         accessToken = account.accessToken
         accountId = account.accountId
         projectId = account.projectId
+        accountEmail = account.email
     } else {
         const account = await accountManager.getNextAvailableAccount()
         if (account) {
             accessToken = account.accessToken
             accountId = account.accountId
             projectId = account.projectId
+            accountEmail = account.email
         } else {
             accessToken = await getAccessToken()
             projectId = state.cloudaicompanionProject || undefined
+            accountEmail = state.userEmail || undefined
         }
     }
 
@@ -463,57 +866,64 @@ export async function* createChatCompletionStreamWithOptions(
 
     if (projectId) antigravityRequest.project = projectId
 
-    const rawResponse = await sendRequestSse(
+    // 🆕 使用真正的流式读取，边读边处理边 yield
+    const sseStream = sendRequestSseStreaming(
         STREAM_ENDPOINT,
         antigravityRequest,
         accessToken,
         accountId,
-        options.allowRotation ?? true
+        request.model
     )
-
-    // 🔍 Debug: log raw response length and first 200 chars
-    consola.debug(`[Stream] Raw response length: ${rawResponse.length}, preview: ${rawResponse.substring(0, 200)}`)
-
-    const chunks = collectSseChunks(rawResponse)
-
-    // 🔍 Debug: log chunks count
-    consola.debug(`[Stream] Parsed ${chunks.length} chunks from SSE response`)
-
-    if (chunks.length === 0) {
-        consola.warn(`[Stream] No chunks parsed from response. Raw response: ${rawResponse.substring(0, 500)}`)
-        throw new Error("Empty SSE response - no chunks parsed")
-    }
 
     let hasFirstResponse = false
     let blockIndex = 0
     let hasToolUse = false
     let outputTokens = 0
-    let textBlockStarted = false  // 🔧 跟踪文本块是否已开始
+    let textBlockStarted = false
 
-    for (const chunk of chunks) {
-        const parts = chunk.response?.candidates?.[0]?.content?.parts || []
+    const messageStart = {
+        type: "message_start",
+        message: {
+            id: "msg_" + crypto.randomUUID().replace(/-/g, "").slice(0, 24),
+            type: "message",
+            role: "assistant",
+            content: [],
+            model: request.model,
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 0, output_tokens: 0 }
+        }
+    }
+    yield "event: message_start\ndata: " + JSON.stringify(messageStart) + "\n\n"
+    const initialTextBlock = {
+        type: "content_block_start",
+        index: blockIndex,
+        content_block: { type: "text", text: "" },
+    }
+    yield "event: content_block_start\ndata: " + JSON.stringify(initialTextBlock) + "\n\n"
+    textBlockStarted = true
+    hasFirstResponse = true
+
+    for await (const chunkStr of sseStream) {
+        // 解析 JSON 字符串
+        let chunk: any
+        try {
+            chunk = JSON.parse(chunkStr)
+        } catch {
+            continue
+        }
+
+        // chunk 可能直接是响应，也可能包含 response 字段
+        const responseData = chunk.response || chunk
+        const parts = responseData?.candidates?.[0]?.content?.parts || []
 
         if (!hasFirstResponse) {
-            const messageStart = {
-                type: "message_start",
-                message: {
-                    id: "msg_" + crypto.randomUUID().replace(/-/g, "").slice(0, 24),
-                    type: "message",
-                    role: "assistant",
-                    content: [],
-                    model: request.model,
-                    stop_reason: null,
-                    stop_sequence: null,
-                    usage: { input_tokens: 0, output_tokens: 0 }
-                }
-            }
-            yield "event: message_start\ndata: " + JSON.stringify(messageStart) + "\n\n"
             hasFirstResponse = true
         }
 
         for (const part of parts) {
             if (part.text) {
-                // 🔧 只在第一次遇到文本时发送 block_start
+                // 只在第一次遇到文本时发送 block_start
                 if (!textBlockStarted) {
                     yield "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":" + blockIndex + ",\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                     textBlockStarted = true
@@ -531,10 +941,12 @@ export async function* createChatCompletionStreamWithOptions(
                 }
 
                 hasToolUse = true
-                const toolStart = { type: "content_block_start", index: blockIndex, content_block: { type: "tool_use", id: part.functionCall.id || "toolu_" + Date.now(), name: part.functionCall.name, input: {} } }
+                const toolStart = { type: "content_block_start", index: blockIndex, content_block: { type: "tool_use", id: part.functionCall.id || generateToolUseId(), name: part.functionCall.name, input: {} } }
                 yield "event: content_block_start\ndata: " + JSON.stringify(toolStart) + "\n\n"
                 if (part.functionCall.args) {
-                    const inputDelta = { type: "content_block_delta", index: blockIndex, delta: { type: "input_json_delta", partial_json: JSON.stringify(part.functionCall.args) } }
+                    const rawArgs = part.functionCall.args
+                    const partialJson = typeof rawArgs === "string" ? rawArgs : (JSON.stringify(rawArgs) || "{}")
+                    const inputDelta = { type: "content_block_delta", index: blockIndex, delta: { type: "input_json_delta", partial_json: partialJson } }
                     yield "event: content_block_delta\ndata: " + JSON.stringify(inputDelta) + "\n\n"
                 }
                 yield "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":" + blockIndex + "}\n\n"
@@ -542,11 +954,11 @@ export async function* createChatCompletionStreamWithOptions(
             }
         }
 
-        const usage = chunk.response?.usageMetadata
+        const usage = responseData?.usageMetadata
         if (usage) outputTokens = (usage.candidatesTokenCount || 0) + (usage.thoughtsTokenCount || 0)
     }
 
-    // 🔧 关闭最后的文本块（如果有）
+    // 关闭最后的文本块（如果有）
     if (textBlockStarted) {
         yield "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":" + blockIndex + "}\n\n"
     }
@@ -555,4 +967,12 @@ export async function* createChatCompletionStreamWithOptions(
     const messageDelta = { type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: outputTokens } }
     yield "event: message_delta\ndata: " + JSON.stringify(messageDelta) + "\n\n"
     yield "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+    // Record usage (fire-and-forget) - use actual native model ID
+    const actualModelId = getAntigravityModelName(request.model)
+    if (outputTokens > 0) {
+        import("~/services/usage-tracker").then(({ recordUsage }) => {
+            recordUsage(actualModelId, 0, outputTokens)
+        }).catch(() => { })
+    }
 }

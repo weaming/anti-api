@@ -11,22 +11,19 @@ echo  ██╔══██║██║╚██╗██║   ██║   █�
 echo  ██║  ██║██║ ╚████║   ██║   ██║        ██║  ██║██║     ██║
 echo  ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝        ╚═╝  ╚═╝╚═╝     ╚═╝
 echo.
-echo ================================
-echo.
 
 set PORT=8964
+set RUST_PROXY_PORT=8965
 
-echo 端口: %PORT%
-
-:: 检查端口占用
-netstat -ano | findstr :%PORT% >nul 2>&1
-if %errorlevel%==0 (
-    echo 端口被占用.
-    for /f "tokens=5" %%a in ('netstat -ano ^| findstr :%PORT%') do (
-        taskkill /PID %%a /F >nul 2>&1
-    )
-    echo 端口已释放.
+:: 静默释放端口
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :%PORT% 2^>nul') do (
+    taskkill /PID %%a /F >nul 2>&1
 )
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :%RUST_PROXY_PORT% 2^>nul') do (
+    taskkill /PID %%a /F >nul 2>&1
+)
+:: 等待端口释放
+timeout /t 1 /nobreak >nul 2>&1
 
 :: 加载 bun 路径（如果已安装）
 if exist "%USERPROFILE%\.bun\bin\bun.exe" (
@@ -37,12 +34,12 @@ if exist "%USERPROFILE%\.bun\bin\bun.exe" (
 where bun >nul 2>&1
 if %errorlevel% neq 0 (
     echo 安装 Bun...
-    powershell -Command "irm bun.sh/install.ps1 | iex"
+    echo (如果安装失败，请以管理员身份运行)
+    powershell -ExecutionPolicy Bypass -Command "irm bun.sh/install.ps1 | iex"
     if %errorlevel% neq 0 (
-        echo [错误] Bun 安装失败
+        echo [错误] Bun 安装失败，请以管理员身份运行或手动安装
         goto :error
     )
-    :: 重新加载路径
     set "PATH=%USERPROFILE%\.bun\bin;%PATH%"
 )
 
@@ -53,27 +50,30 @@ if %errorlevel% neq 0 (
     goto :error
 )
 
-:: 安装依赖
+:: 安装依赖（静默）
 if not exist "node_modules" (
-    echo 安装依赖...
+    echo 正在安装依赖...
     bun install --silent
-    if %errorlevel% neq 0 (
-        echo [错误] 依赖安装失败
-        goto :error
+)
+
+:: 启动 Rust Proxy（后台运行）
+set RUST_PROXY_BIN=rust-proxy\target\release\anti-proxy.exe
+if not exist "%RUST_PROXY_BIN%" (
+    where cargo >nul 2>&1
+    if %errorlevel% equ 0 (
+        cargo build --release --manifest-path rust-proxy\Cargo.toml >nul 2>&1
     )
 )
-
-echo.
-echo ================================
-echo.
-
-:: 启动服务器
-bun run src/main.ts start
-if %errorlevel% neq 0 (
-    echo.
-    echo [错误] 服务器异常退出
-    goto :error
+if exist "%RUST_PROXY_BIN%" (
+    start "" /B cmd /c "%RUST_PROXY_BIN%" >nul 2>&1
+    timeout /t 1 /nobreak >nul 2>&1
 )
+
+:: 启动 TypeScript 服务器
+bun run src/main.ts start
+
+:: 清理 Rust Proxy
+taskkill /IM anti-proxy.exe /F >nul 2>&1
 
 goto :end
 
@@ -84,4 +84,4 @@ pause >nul
 exit /b 1
 
 :end
-pause
+exit /b 0

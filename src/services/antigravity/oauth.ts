@@ -4,7 +4,6 @@
  */
 
 import https from "https"
-import consola from "consola"
 import { state } from "~/lib/state"
 
 // OAuth 配置（来自 CLIProxyAPI）
@@ -133,8 +132,7 @@ export async function getProjectID(accessToken: string): Promise<string | null> 
 
         const data = response.data as { cloudaicompanionProject?: string }
         return data.cloudaicompanionProject || null
-    } catch (error) {
-        consola.debug("Failed to get project ID:", error)
+    } catch {
         return null
     }
 }
@@ -200,9 +198,7 @@ export async function getAccessToken(): Promise<string> {
             const { saveAuth } = await import("./login")
             saveAuth()
 
-            consola.debug("[OAuth] Token refreshed successfully")
         } catch (error) {
-            consola.debug("[OAuth] Token refresh failed:", error)
             // 刷新失败时抛出错误，让用户重新登录
             throw new Error("Token expired and refresh failed. Please re-login.")
         }
@@ -311,24 +307,8 @@ export function startOAuthCallbackServer(): Promise<{
                         callbackResolve({ code: code || undefined, state: state || undefined, error: error || undefined })
                     }
 
-                    // 返回成功页面
-                    return new Response(`
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <title>Succeed</title>
-                            <style>
-                                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #000; color: #fff; }
-                                h1 { color: #fff; font-size: 48px; }
-                            </style>
-                        </head>
-                        <body>
-                            <h1>Succeed</h1>
-                        </body>
-                        </html>
-                    `, {
-                        headers: { "Content-Type": "text/html" },
-                    })
+                    // Redirect to official success page
+                    return Response.redirect("https://antigravity.google/auth-success", 302)
                 }
 
                 return new Response("Not Found", { status: 404 })

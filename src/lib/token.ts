@@ -8,7 +8,6 @@ import { Database } from "bun:sqlite"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { existsSync } from "node:fs"
-import consola from "consola"
 
 import { state } from "./state"
 import { AntigravityError } from "./error"
@@ -30,7 +29,6 @@ interface AntigravityAuthStatus {
  * 从Antigravity数据库读取认证token
  */
 export async function setupAntigravityToken(): Promise<void> {
-    consola.debug("Reading Antigravity token from:", ANTIGRAVITY_DB_PATH)
 
     // 检查文件是否存在
     if (!existsSync(ANTIGRAVITY_DB_PATH)) {
@@ -72,9 +70,6 @@ export async function setupAntigravityToken(): Promise<void> {
         state.antigravityToken = authStatus.apiKey
         state.userEmail = authStatus.email
         state.userName = authStatus.name
-
-        consola.debug(`User: ${authStatus.email}`)
-        consola.debug("Token前缀:", authStatus.apiKey.substring(0, 10) + "...")
 
     } catch (error) {
         if (error instanceof AntigravityError) {

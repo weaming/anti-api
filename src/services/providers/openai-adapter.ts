@@ -1,4 +1,5 @@
 import type { ClaudeMessage, ClaudeTool, ClaudeContentBlock } from "~/lib/translator"
+import { cleanJsonSchemaForGemini } from "~/lib/json-schema-cleaner"
 
 export interface OpenAIChatMessage {
     role: "user" | "assistant" | "system" | "tool"
@@ -16,6 +17,47 @@ export interface OpenAIToolDefinition {
     }
 }
 
+function normalizeToolParameters(schema: unknown): any {
+    if (!schema) {
+        return { type: "object", properties: {} }
+    }
+
+    let normalized: any = schema
+    if (typeof schema === "string") {
+        const trimmed = schema.trim()
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            try {
+                normalized = JSON.parse(trimmed)
+            } catch {
+                return { type: "object", properties: {} }
+            }
+        } else {
+            return { type: "object", properties: {} }
+        }
+    }
+
+    if (typeof normalized !== "object" || normalized === null || Array.isArray(normalized)) {
+        return { type: "object", properties: {} }
+    }
+
+    normalized = cleanJsonSchemaForGemini(normalized)
+    if (!normalized || typeof normalized !== "object" || Array.isArray(normalized)) {
+        return { type: "object", properties: {} }
+    }
+
+    if (normalized.type !== "object") {
+        normalized.type = "object"
+    }
+    if (!normalized.properties || typeof normalized.properties !== "object" || Array.isArray(normalized.properties)) {
+        normalized.properties = {}
+    }
+    if (normalized.required && !Array.isArray(normalized.required)) {
+        delete normalized.required
+    }
+
+    return normalized
+}
+
 export function toOpenAITools(tools?: ClaudeTool[]): OpenAIToolDefinition[] | undefined {
     if (!tools || tools.length === 0) return undefined
     return tools.map(tool => ({
@@ -23,7 +65,7 @@ export function toOpenAITools(tools?: ClaudeTool[]): OpenAIToolDefinition[] | un
         function: {
             name: tool.name,
             description: tool.description,
-            parameters: tool.input_schema,
+            parameters: normalizeToolParameters(tool.input_schema),
         },
     }))
 }
@@ -61,18 +103,14 @@ export function toOpenAIMessages(messages: ClaudeMessage[]): OpenAIChatMessage[]
 
             result.push({
                 role: "assistant",
-                content: text || null,
+                content: text || "",  // ChatGPT Responses API requires string/array, not null
                 tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
             })
             continue
         }
 
         if (message.role === "user") {
-            const textBlocks = blocks.filter(block => block.type === "text")
-            if (textBlocks.length > 0) {
-                result.push({ role: "user", content: collectText(textBlocks) })
-            }
-
+            // First, add tool_result messages (must come immediately after assistant's tool_calls)
             for (const block of blocks) {
                 if (block.type === "tool_result") {
                     result.push({
@@ -81,6 +119,12 @@ export function toOpenAIMessages(messages: ClaudeMessage[]): OpenAIChatMessage[]
                         content: typeof block.content === "string" ? block.content : JSON.stringify(block.content || {}),
                     })
                 }
+            }
+
+            // Then add any text content as a separate user message
+            const textBlocks = blocks.filter(block => block.type === "text")
+            if (textBlocks.length > 0) {
+                result.push({ role: "user", content: collectText(textBlocks) })
             }
         }
     }

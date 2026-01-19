@@ -17,21 +17,54 @@ import { AVAILABLE_MODELS } from "./lib/config"
 import { getAggregatedQuota } from "./services/quota-aggregator"
 import { initAuth, isAuthenticated } from "./services/antigravity/login"
 import { accountManager } from "./services/antigravity/account-manager"
+import { loadRoutingConfig } from "./services/routing/config"
+import { importCodexAuthSources } from "./services/codex/oauth"
+import { loadSettings, saveSettings } from "./services/settings"
+
+import { getRequestLogContext } from "./lib/logger"
+
 export const server = new Hono()
 
 consola.level = 0
 
-// 中间件
+// 中间件 - 请求日志 (只记录重要请求)
 server.use(async (c, next) => {
     await next()
-    const reason = c.res.headers.get("X-Log-Reason") || (c.res.status < 400 ? "ok" : "error")
-    console.log(`${c.res.status} ${reason}`)
+    const status = c.res.status
+    const reason = c.res.headers.get("X-Log-Reason") || undefined
+
+    // Only log errors
+    if (status >= 400) {
+        const ctx = getRequestLogContext()
+        if (ctx.model && ctx.provider) {
+            const providerNames: Record<string, string> = {
+                copilot: "GitHub Copilot",
+                codex: "ChatGPT Codex",
+                antigravity: "Antigravity",
+            }
+            const providerName = providerNames[ctx.provider] || ctx.provider
+            const accountPart = ctx.account ? ` >> ${ctx.account}` : ""
+            console.log(`${status}: from ${ctx.model} > ${providerName}${accountPart}`)
+        } else {
+            console.log(`${status}: ${reason || "error"}`)
+        }
+    }
+    // All successful requests are silent (detailed 200 logs are handled elsewhere)
 })
 server.use(cors())
 
 // 启动时自动加载已保存的认证
 initAuth()
 accountManager.load()
+
+// 自动导入 Codex 账户 (从 ~/.codex/auth.json 和 ~/.cli-proxy-api/)
+importCodexAuthSources().then(result => {
+    if (result.accounts.length > 0) {
+        consola.success(`Codex: Imported ${result.accounts.length} account(s) from ${result.sources.join(", ")}`)
+    }
+}).catch(err => {
+    void err
+})
 
 // 根路径 - 重定向到配额面板
 server.get("/", (c) => c.redirect("/quota"))
@@ -67,6 +100,30 @@ server.get("/remote/public-ip", async (c) => {
     }
 })
 
+// Settings API - 获取设置
+server.get("/settings", (c) => {
+    return c.json(loadSettings())
+})
+
+// Settings API - 保存设置
+server.post("/settings", async (c) => {
+    const body = await c.req.json()
+    const updated = saveSettings(body)
+    return c.json(updated)
+})
+
+// Usage Tracking API
+import { getUsage, resetUsage } from "./services/usage-tracker"
+
+server.get("/usage", (c) => {
+    return c.json(getUsage())
+})
+
+server.post("/usage/reset", (c) => {
+    resetUsage()
+    return c.json({ success: true })
+})
+
 // OpenAI 兼容端点
 server.route("/v1/chat/completions", openaiRoutes)
 
@@ -82,20 +139,33 @@ server.route("/messages", messageRoutes)
 // 模型列表处理函数 - 兼容 OpenAI 和 Anthropic 格式
 const modelsHandler = (c: any) => {
     const now = new Date().toISOString()
+    const routingConfig = loadRoutingConfig()
+    const routeModels = (routingConfig.flows || []).map(flow => ({
+        id: flow.name,
+        name: `Route: ${flow.name}`,
+        owned_by: "routing",
+    }))
+    const seen = new Set<string>()
+    const models = [...AVAILABLE_MODELS, ...routeModels].filter(model => {
+        if (seen.has(model.id)) return false
+        seen.add(model.id)
+        return true
+    })
+
     return c.json({
         object: "list",
-        data: AVAILABLE_MODELS.map(m => ({
+        data: models.map(m => ({
             id: m.id,
             type: "model",           // Anthropic format
             object: "model",         // OpenAI format
             created_at: now,         // Anthropic format (RFC 3339)
             created: Date.now(),     // OpenAI format (unix timestamp)
-            owned_by: "antigravity",
-            display_name: m.name,
+            owned_by: "owned_by" in m ? (m.owned_by as string) : "antigravity",
+            display_name: "name" in m ? (m.name as string) : m.id,
         })),
         has_more: false,
-        first_id: AVAILABLE_MODELS[0]?.id,
-        last_id: AVAILABLE_MODELS[AVAILABLE_MODELS.length - 1]?.id,
+        first_id: models[0]?.id,
+        last_id: models[models.length - 1]?.id,
     })
 }
 
@@ -125,11 +195,45 @@ server.get("/quota/json", async (c) => {
     }
 })
 
-// 删除账号 - API
+// 删除账号 - API（同时清理 routing 配置）
 server.delete("/accounts/:id", async (c) => {
     const accountId = c.req.param("id")
     const success = accountManager.removeAccount(accountId)
     if (success) {
+        // 🆕 同时清理 routing 配置中的该账号
+        try {
+            const { loadRoutingConfig, saveRoutingConfig } = require("./services/routing/config")
+            const config = loadRoutingConfig()
+            let removedCount = 0
+            const cleanedFlows = config.flows.map((flow: any) => ({
+                ...flow,
+                entries: flow.entries.filter((entry: any) => {
+                    if (entry.accountId === accountId) {
+                        removedCount++
+                        return false
+                    }
+                    return true
+                })
+            }))
+            const cleanedAccountRouting = config.accountRouting ? {
+                ...config.accountRouting,
+                routes: config.accountRouting.routes.map((route: any) => ({
+                    ...route,
+                    entries: route.entries.filter((entry: any) => {
+                        if (entry.accountId === accountId) {
+                            removedCount++
+                            return false
+                        }
+                        return true
+                    })
+                }))
+            } : config.accountRouting
+            if (removedCount > 0) {
+                saveRoutingConfig(cleanedFlows, undefined, cleanedAccountRouting)
+            }
+        } catch (e) {
+            console.error("Failed to cleanup routing config:", e)
+        }
         return c.json({ success: true, message: `Account ${accountId} removed` })
     }
     return c.json({ success: false, error: "Account not found" }, 404)
