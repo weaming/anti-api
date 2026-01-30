@@ -1,5 +1,5 @@
 //! Anti-Proxy: Lightweight proxy for Google Cloud Code API
-//! 
+//!
 //! CRITICAL DESIGN: This proxy does NOT retry 429 errors!
 //! 429s must be handled by the TypeScript layer which can switch accounts.
 //! This mimics proj-1's architecture where retry = account rotation.
@@ -22,7 +22,7 @@ use tracing::{info, warn};
 
 // ===== Configuration =====
 const LISTEN_PORT: u16 = 8965;
-const USER_AGENT: &str = "antigravity/1.11.9 windows/amd64";
+const USER_AGENT: &str = "antigravity/1.15.8 windows/amd64";
 const MIN_REQUEST_INTERVAL_MS: u64 = 500; // 500ms 最小间隔
 
 // API endpoints
@@ -97,7 +97,7 @@ async fn handle_proxy(
     // 获取信号量许可
     let _permit = state.request_semaphore.acquire().await.unwrap();
     info!("📨 Request acquired permit");
-    
+
     // 强制执行速率限制
     state.enforce_rate_limit().await;
 
@@ -129,7 +129,7 @@ async fn handle_proxy(
             Ok(response) => {
                 let status = response.status();
                 let status_code = status.as_u16();
-                
+
                 if status.is_success() {
                     info!("✓ Request successful");
                     let text = response.text().await.unwrap_or_default();
@@ -145,7 +145,7 @@ async fn handle_proxy(
                 }
 
                 let error_text = response.text().await.unwrap_or_default();
-                
+
                 match status_code {
                     // 429: 返回给 TypeScript 处理账号切换
                     429 => {
@@ -160,7 +160,7 @@ async fn handle_proxy(
                             }),
                         );
                     }
-                    
+
                     // 400: 请求格式错误，不重试
                     400 => {
                         warn!("❌ Bad request (400)");
@@ -174,7 +174,7 @@ async fn handle_proxy(
                             }),
                         );
                     }
-                    
+
                     // 401/403: 认证错误，返回给 TypeScript
                     401 | 403 => {
                         warn!("❌ Auth error ({})", status_code);
@@ -188,13 +188,13 @@ async fn handle_proxy(
                             }),
                         );
                     }
-                    
+
                     // 5xx: 尝试下一个端点
                     _ if status.is_server_error() => {
                         warn!("Server error ({}), trying next endpoint", status_code);
                         continue;
                     }
-                    
+
                     // 其他错误
                     _ => {
                         return (
