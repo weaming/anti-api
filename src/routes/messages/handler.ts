@@ -9,7 +9,8 @@ import type { Context } from "hono"
 import { streamSSE } from "hono/streaming"
 import consola from "consola"
 
-import { createRoutedCompletion, createRoutedCompletionStream, RoutingError } from "~/services/routing/router"
+import { createRoutedCompletion, createRoutedCompletionStream, RoutingError, isOfficialModel } from "~/services/routing/router"
+import { mapModel } from "../openai/translator"
 import type { ClaudeMessage, ClaudeTool } from "~/lib/translator"
 import { rateLimiter } from "~/lib/rate-limiter"
 import { validateAnthropicRequest } from "~/lib/validation"
@@ -77,6 +78,19 @@ export async function handleCompletion(c: Context): Promise<Response> {
         }
 
         await rateLimiter.wait()
+        let anthropicModel = mapModel(payload.model)
+
+        // 🆕 自动检测 Anthropic 特有的 thinking 字段并升级模型 ID
+        if (payload.thinking?.type === "enabled" && !anthropicModel.endsWith("-thinking")) {
+            const upgraded = `${anthropicModel}-thinking`
+            if (isOfficialModel(upgraded)) {
+                anthropicModel = upgraded
+            }
+        }
+
+        if (payload.model !== anthropicModel) {
+            console.log(`200: model "${payload.model}" -> "${anthropicModel}"`)
+        }
 
         const messages = translateMessages(payload)
         const tools = extractTools(payload)
@@ -101,14 +115,14 @@ export async function handleCompletion(c: Context): Promise<Response> {
 
         // 检查是否流式
         if (payload.stream) {
-            return handleStreamCompletion(c, payload, messages, tools, toolChoice)
+            return handleStreamCompletion(c, payload, anthropicModel, messages, tools, toolChoice)
         }
 
         // 非流式请求
             let result
         try {
             result = await createRoutedCompletion({
-                model: payload.model,
+                model: anthropicModel,
                 messages,
                 tools,
                 toolChoice,
@@ -116,7 +130,7 @@ export async function handleCompletion(c: Context): Promise<Response> {
             })
         } catch (error) {
             if (error instanceof RoutingError) {
-                return c.json({ error: { type: "invalid_request_error", message: error.message } }, error.status)
+                return c.json({ error: { type: "invalid_request_error", message: error.message } }, error.status as any)
             }
             throw error
         }
@@ -167,6 +181,7 @@ export async function handleCompletion(c: Context): Promise<Response> {
 async function handleStreamCompletion(
     c: Context,
     payload: AnthropicMessagesPayload,
+    anthropicModel: string,
     messages: ClaudeMessage[],
     tools: ClaudeTool[] | undefined,
     toolChoice: AnthropicMessagesPayload["tool_choice"] | undefined
@@ -177,7 +192,7 @@ async function handleStreamCompletion(
         }, 15000)
         try {
             const chatStream = createRoutedCompletionStream({
-                model: payload.model,
+                model: anthropicModel,
                 messages,
                 tools,
                 toolChoice,

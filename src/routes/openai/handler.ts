@@ -33,6 +33,9 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
         await rateLimiter.wait()
 
         const anthropicModel = mapModel(payload.model)
+        if (payload.model !== anthropicModel) {
+            console.log(`200: model "${payload.model}" -> "${anthropicModel}"`)
+        }
         const messages = translateMessages(payload.messages)
         const tools = translateTools(payload.tools)
 
@@ -50,7 +53,7 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
             })
         } catch (error) {
             if (error instanceof RoutingError) {
-                return c.json({ error: { type: "invalid_request_error", message: error.message } }, error.status)
+                return c.json({ error: { type: "invalid_request_error", message: error.message } }, error.status as any)
             }
             throw error
         }

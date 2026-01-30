@@ -130,13 +130,12 @@ function buildOfficialModelIndex(): Map<string, Set<AuthProvider>> {
 }
 
 function getOfficialModelProviders(model: string): AuthProvider[] {
-    if (!officialModelIndex) {
-        officialModelIndex = buildOfficialModelIndex()
-    }
-    return Array.from(officialModelIndex.get(model) || [])
+    // 🆕 强制每次构建索引，防止缓存导致的新模型识别失败
+    const index = buildOfficialModelIndex()
+    return Array.from(index.get(model) || [])
 }
 
-function isOfficialModel(model: string): boolean {
+export function isOfficialModel(model: string): boolean {
     return getOfficialModelProviders(model).length > 0
 }
 
@@ -603,7 +602,7 @@ async function createAccountCompletionWithEntries(request: RoutedRequest, entrie
                     throw new RoutingError(`Account routing entry for "${request.model}" cannot use auto without smart switch expansion`, 400)
                 }
                 const isLimited = accountManager.isAccountRateLimited(entry.accountId) || isRouterRateLimited("antigravity", entry.accountId)
-                if (isLimited) continue
+                if (isLimited && entries.length > 1) continue
                 if (entries.length > 1 && accountManager.isAccountInFlight(entry.accountId)) continue
                 const accountDisplay = getAccountDisplay("antigravity", entry.accountId)
                 setRequestLogContext({ model: request.model, provider: "antigravity", account: accountDisplay })
@@ -916,7 +915,7 @@ async function* createAccountCompletionStreamWithEntries(request: RoutedRequest,
                     throw new RoutingError(`Account routing entry for "${request.model}" cannot use auto without smart switch expansion`, 400)
                 }
                 const isLimited = accountManager.isAccountRateLimited(entry.accountId) || isRouterRateLimited("antigravity", entry.accountId)
-                if (isLimited) continue
+                if (isLimited && entries.length > 1) continue
                 if (entries.length > 1 && accountManager.isAccountInFlight(entry.accountId)) continue
                 yield* createChatCompletionStreamWithOptions({ ...request, model: request.model }, {
                     accountId: entry.accountId,

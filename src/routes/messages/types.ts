@@ -19,6 +19,10 @@ export interface AnthropicMessagesPayload {
         type: "auto" | "any" | "tool" | "none"
         name?: string
     }
+    thinking?: {
+        type: "enabled" | "disabled"
+        budget_tokens?: number
+    }
 }
 
 export interface AnthropicMessage {

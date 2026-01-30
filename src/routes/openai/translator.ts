@@ -13,10 +13,17 @@ const MODEL_MAPPING: Record<string, string> = {
     "gpt-3.5-turbo": "gemini-3-flash",  // 使用 Gemini 作为轻量模型
     "o1": "claude-sonnet-4-5-thinking",
     "o1-mini": "gemini-3-flash",
+
+    // 🆕 补全 Claude 4.5 系列别名
+    "claude-opus-4-5": "claude-opus-4-5-thinking",
+    "claude-opus-4.5": "claude-opus-4-5-thinking",
+    "claude-sonnet-4.5": "claude-sonnet-4-5",
+    "claude-sonnet-4-5-thinking": "claude-sonnet-4-5-thinking",
 }
 
 export function mapModel(openaiModel: string): string {
-    return MODEL_MAPPING[openaiModel] || openaiModel
+    const raw = (openaiModel || "").trim().toLowerCase()
+    return MODEL_MAPPING[raw] || openaiModel
 }
 
 export function translateMessages(messages: OpenAIMessage[]): ClaudeMessage[] {

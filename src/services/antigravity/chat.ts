@@ -151,7 +151,7 @@ const MODEL_MAPPING: Record<string, string> = {
     "gemini-3-pro-high": "gemini-3-pro-high",
     "gemini-3-pro-low": "gemini-3-pro-low",
     "gemini-3-flash": "gemini-3-flash",
-    "gpt-oss-120b": "gpt-oss-120b-medium",
+    "gpt-oss-120b": "gpt-oss-120b",
 }
 
 function getAntigravityModelName(userModel: string): string {
