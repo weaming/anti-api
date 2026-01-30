@@ -106,7 +106,7 @@ function normalizeFlow(flow: Partial<RoutingFlow>, index: number): RoutingFlow {
 function normalizeConfig(raw: Partial<RoutingConfig> & { entries?: RoutingEntry[] }): RoutingConfig {
     const updatedAt = raw.updatedAt || new Date().toISOString()
     const accountRouting: AccountRoutingConfig = {
-        smartSwitch: raw.accountRouting?.smartSwitch ?? false,
+        smartSwitch: raw.accountRouting?.smartSwitch ?? true,
         routes: Array.isArray(raw.accountRouting?.routes)
             ? raw.accountRouting!.routes
                 .map((route, index) => normalizeAccountRoute(route, index))
@@ -155,7 +155,7 @@ function normalizeConfig(raw: Partial<RoutingConfig> & { entries?: RoutingEntry[
 export function loadRoutingConfig(): RoutingConfig {
     try {
         if (!existsSync(ROUTING_FILE)) {
-            return { version: CURRENT_VERSION, updatedAt: new Date().toISOString(), flows: [], accountRouting: { smartSwitch: false, routes: [] } }
+            return { version: CURRENT_VERSION, updatedAt: new Date().toISOString(), flows: [], accountRouting: { smartSwitch: true, routes: [] } }
         }
         const raw = JSON.parse(readFileSync(ROUTING_FILE, "utf-8")) as Partial<RoutingConfig> & {
             entries?: RoutingEntry[]
@@ -163,7 +163,7 @@ export function loadRoutingConfig(): RoutingConfig {
         return normalizeConfig(raw)
     } catch (error) {
         consola.warn("Failed to load routing config:", error)
-        return { version: CURRENT_VERSION, updatedAt: new Date().toISOString(), flows: [], accountRouting: { smartSwitch: false, routes: [] } }
+        return { version: CURRENT_VERSION, updatedAt: new Date().toISOString(), flows: [], accountRouting: { smartSwitch: true, routes: [] } }
     }
 }
 

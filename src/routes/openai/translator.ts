@@ -10,9 +10,9 @@ const MODEL_MAPPING: Record<string, string> = {
     "gpt-4": "claude-sonnet-4-5",
     "gpt-4o": "claude-sonnet-4-5",
     "gpt-4-turbo": "claude-sonnet-4-5",
-    "gpt-3.5-turbo": "gemini-2.0-flash-exp",  // 使用 Gemini 作为轻量模型
+    "gpt-3.5-turbo": "gemini-3-flash",  // 使用 Gemini 作为轻量模型
     "o1": "claude-sonnet-4-5-thinking",
-    "o1-mini": "gemini-2.0-flash-exp",
+    "o1-mini": "gemini-3-flash",
 }
 
 export function mapModel(openaiModel: string): string {

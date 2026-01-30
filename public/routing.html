@@ -6,9 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anti-API Routing</title>
     <link rel="icon"
-        href="https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://antigravity.google&size=32"
+        href="https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://antigravity.google&size=32&v=2"
         type="image/x-icon">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com?v=2"></script>
     <style>
         :root {
             --bg-black: #0a0a0a;
@@ -211,6 +211,13 @@
                 0 0 42px rgba(110, 231, 255, 0.25);
         }
 
+        #reset-btn:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.6);
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.4),
+                0 0 40px rgba(239, 68, 68, 0.2);
+        }
+
         .flow-canvas {
             position: relative;
             padding: 12px 6px 28px;
@@ -340,8 +347,9 @@
             display: none !important;
         }
 
+        /* 🆕 Allow action buttons (like Reset Rules) to show in iframe mode */
         body.iframe-mode header .action-wrap {
-            display: none !important;
+            display: block;
         }
 
         .toggle-switch {
@@ -434,6 +442,12 @@
                     <button id="tab-account" onclick="setRoutingTab('account')"
                         class="action-btn px-3 py-2 rounded-lg font-bold text-gray-400">
                         Account Routing
+                    </button>
+                </div>
+                <div class="action-wrap inline-block">
+                    <button onclick="resetRouting()" id="reset-btn"
+                        class="action-btn px-4 py-2 rounded-lg font-bold text-red-500 text-sm border-red-500/30">
+                        Reset Rules
                     </button>
                 </div>
                 <div class="action-wrap inline-block">
@@ -900,7 +914,28 @@
         }
 
         async function saveAccountRouting() {
-            await persistAccountRoutingOnly();
+            const btn = dom.byId('account-save-btn');
+            if (!btn) return;
+            const originalText = btn.textContent;
+            const originalClass = btn.className;
+            
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Saving...';
+                await persistAccountRoutingOnly();
+                btn.textContent = '✓ Saved';
+                btn.classList.add('border-green-500', 'text-green-500');
+                btn.classList.remove('text-gray-300');
+            } catch (e) {
+                btn.textContent = 'Error';
+                console.error(e);
+            } finally {
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                    btn.className = originalClass;
+                }, 2000);
+            }
         }
 
         async function loadRouting() {
@@ -1306,19 +1341,20 @@
 
         async function saveRouting() {
             const status = dom.byId('save-status');
+            const btn = dom.byId('save-btn');
             const nameInput = dom.byId('flow-name');
             const flowName = nameInput ? nameInput.value.trim() : '';
 
             if (!flowName) {
-                status.textContent = 'Flow name required';
-                setTimeout(() => status.textContent = '', 2000);
+                if (status) status.textContent = 'Flow name required';
+                setTimeout(() => { if (status) status.textContent = ''; }, 2000);
                 return;
             }
 
             const existingByName = flows.find(flow => flow.name === flowName && flow.id !== activeFlowId);
             if (existingByName) {
-                status.textContent = 'Flow name already exists';
-                setTimeout(() => status.textContent = '', 2000);
+                if (status) status.textContent = 'Flow name already exists';
+                setTimeout(() => { if (status) status.textContent = ''; }, 2000);
                 return;
             }
 
@@ -1326,17 +1362,45 @@
             const flow = { id: flowId, name: flowName, entries: flowEntries };
             const index = flows.findIndex(existing => existing.id === flowId);
 
-            if (index >= 0) {
-                flows[index] = flow;
-            } else {
-                flows.push(flow);
-            }
+            const originalText = btn ? btn.textContent : 'Save';
+            const originalClass = btn ? btn.className : '';
+            
+            try {
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent = 'Saving...';
+                }
+                if (status) status.textContent = 'Saving...';
+                
+                if (index >= 0) {
+                    flows[index] = flow;
+                } else {
+                    flows.push(flow);
+                }
 
-            activeFlowId = flowId;
-            status.textContent = 'Saving...';
-            await persistRoutingConfig();
-            status.textContent = 'Saved';
-            setTimeout(() => status.textContent = '', 2000);
+                activeFlowId = flowId;
+                await persistRoutingConfig();
+                
+                if (btn) {
+                    btn.textContent = '✓ Saved';
+                    btn.classList.add('border-green-500', 'text-green-500');
+                    btn.classList.remove('text-gray-300');
+                }
+                if (status) status.textContent = 'Saved';
+            } catch (e) {
+                if (btn) btn.textContent = 'Error';
+                if (status) status.textContent = 'Error';
+                console.error(e);
+            } finally {
+                setTimeout(() => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                        btn.className = originalClass;
+                    }
+                    if (status) status.textContent = '';
+                }, 2000);
+            }
         }
 
         function clearRouting() {
@@ -1455,6 +1519,45 @@
             svg.innerHTML = `${defs}${paths}`;
         }
 
+        async function resetRouting() {
+            if (!confirm('Are you sure you want to clear all routing rules? This will reset your config to default (flows empty, smart switch enabled).')) {
+                return;
+            }
+
+            const btn = dom.byId('reset-btn');
+            const originalText = btn ? btn.textContent : 'Reset Rules';
+            
+            try {
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent = 'Resetting...';
+                }
+
+                flows = [];
+                accountRouting = { smartSwitch: true, routes: [] };
+                activeFlowId = null;
+                localStorage.removeItem(STORAGE_KEYS.activeFlow);
+                
+                await persistRoutingConfig();
+                
+                if (btn) {
+                    btn.textContent = '✓ Reset';
+                }
+                setTimeout(() => {
+                    location.reload(); // Hard reload to clear all states and re-draw
+                }, 1000);
+            } catch (e) {
+                if (btn) btn.textContent = 'Error';
+                console.error(e);
+                setTimeout(() => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                    }
+                }, 2000);
+            }
+        }
+
         const routingExports = {
             setRoutingTab,
             newFlow,
@@ -1464,6 +1567,7 @@
             moveAccountRouteEntry,
             removeAccountRouteEntry,
             removeEntry,
+            resetRouting,
         };
         Object.assign(window, routingExports);
 

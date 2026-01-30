@@ -69,6 +69,7 @@ mock.module("~/services/antigravity/account-manager", () => ({
     accountManager: {
         hasAccount: () => true,
         isAccountRateLimited: () => rateLimitAll,
+        isAccountInFlight: () => false,
         markRateLimitedFromError: async () => ({ reason: "quota_exhausted", durationMs: 60_000 }),
         clearAllRateLimits: () => { },
     },
