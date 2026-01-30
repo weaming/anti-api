@@ -1769,6 +1769,11 @@
                     return;
                 }
 
+                if (provider === 'antigravity' && data.status === 'pending') {
+                    showAntigravityDeviceFlow(data)
+                    return
+                }
+
                 if (provider === 'copilot') {
                     if (data.status === 'success' && data.source === 'import') {
                         setAddAccountStatus(`Imported Copilot: ${data.login || 'Copilot'}`);
@@ -1780,6 +1785,7 @@
                     showCopilotDeviceFlow(data);
                     return;
                 }
+
 
                 if (provider === 'codex' && data.status === 'pending') {
                     showCodexDeviceFlow(data);
@@ -1817,6 +1823,35 @@
             }
             setAddAccountStatus('Waiting for GitHub Copilot authorization...');
             pollCopilotStatus(data.device_code, data.interval || 5);
+        }
+
+        function showAntigravityDeviceFlow(data) {
+            const status = document.getElementById('add-account-status');
+            status.innerHTML = `Please <a href="${data.authUrl}" target="_blank" class="text-blue-400 hover:text-blue-300 underline">open this link</a> to complete login.`;
+            status.classList.remove('hidden');
+
+            window.open(data.authUrl, '_blank');
+            setAddAccountStatus('Waiting for Antigravity authorization...');
+            pollAntigravityStatus(data.sessionId);
+        }
+
+        async function pollAntigravityStatus(sessionId) {
+            if (!sessionId) return;
+            const res = await fetch(`${API_BASE}/auth/antigravity/status?session_id=${sessionId}`);
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                setAddAccountStatus(data.message || `Connected: ${data.account?.email || 'Antigravity'}`);
+                closeAddAccountModal();
+                fetchQuota(true);
+                return;
+            }
+            if (data.status === 'error') {
+                setAddAccountStatus(data.message || 'Antigravity authentication failed');
+                return;
+            }
+            // If still pending, poll again
+            setTimeout(() => pollAntigravityStatus(sessionId), 2000);
         }
 
         function showCodexDeviceFlow(data) {

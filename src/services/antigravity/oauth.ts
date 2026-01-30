@@ -5,6 +5,7 @@
 
 import https from "https"
 import { state } from "~/lib/state"
+import consola from "consola"
 
 // OAuth 配置（来自 CLIProxyAPI）
 export const OAUTH_CONFIG = {
@@ -288,37 +289,53 @@ export function startOAuthCallbackServer(): Promise<{
     waitForCallback: () => Promise<OAuthCallbackResult>
 }> {
     return new Promise((resolve, reject) => {
+        const port = OAUTH_CONFIG.callbackPort // Use fixed port
         let callbackResolve: ((result: OAuthCallbackResult) => void) | null = null
         const callbackPromise = new Promise<OAuthCallbackResult>((res) => {
             callbackResolve = res
         })
 
-        const server = Bun.serve({
-            port: OAUTH_CONFIG.callbackPort,
-            fetch(req) {
-                const url = new URL(req.url)
+        try {
+            const server = Bun.serve({
+                port: port,
+                fetch(req) {
+                    consola.debug(`[OAuth] Callback server received request: ${req.url}`)
+                    const url = new URL(req.url)
+                    if (url.pathname === "/oauth-callback") {
+                        const code = url.searchParams.get("code")
+                        const state = url.searchParams.get("state")
+                        const error = url.searchParams.get("error")
+                        consola.debug(`[OAuth] Callback params: code=${code}, state=${state}, error=${error}`)
 
-                if (url.pathname === "/oauth-callback") {
-                    const code = url.searchParams.get("code")
-                    const state = url.searchParams.get("state")
-                    const error = url.searchParams.get("error")
-
-                    if (callbackResolve) {
-                        callbackResolve({ code: code || undefined, state: state || undefined, error: error || undefined })
+                        if (callbackResolve) {
+                            callbackResolve({
+                                code: code || undefined,
+                                state: state || undefined,
+                                error: error || undefined,
+                            })
+                            consola.debug("[OAuth] Callback promise resolved.")
+                        }
+                        consola.debug("[OAuth] Redirecting to google auth success page.")
+                        return Response.redirect("https://antigravity.google/auth-success", 302)
                     }
-
-                    // Redirect to official success page
-                    return Response.redirect("https://antigravity.google/auth-success", 302)
-                }
-
-                return new Response("Not Found", { status: 404 })
-            },
-        })
-
-        resolve({
-            server,
-            port: OAUTH_CONFIG.callbackPort,
-            waitForCallback: () => callbackPromise,
-        })
+                    return new Response("Not Found", { status: 404 })
+                },
+                error(error: Error) {
+                    consola.error(`[OAuth] Callback server error: ${error.message}`)
+                    reject(new Error(`Failed to start server on port ${port}. Is it in use?`))
+                    return new Response(null, { status: 500 })
+                },
+            })
+            consola.debug(`[OAuth] Callback server started on port ${port}`)
+            resolve({
+                server,
+                port: port,
+                waitForCallback: () => callbackPromise,
+            })
+        } catch (error) {
+            // Bun.serve throws synchronously if port is in use
+            consola.error(`[OAuth] Failed to start callback server synchronously: ${(error as Error).message}`)
+            reject(new Error(`Failed to start server on port ${port}. Is it in use? Details: ${(error as Error).message}`))
+        }
     })
 }

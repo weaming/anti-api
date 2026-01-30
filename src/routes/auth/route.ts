@@ -3,7 +3,7 @@
  */
 
 import { Hono } from "hono"
-import { isAuthenticated, getUserInfo, setAuth, clearAuth, startOAuthLogin } from "~/services/antigravity/login"
+import { isAuthenticated, getUserInfo, setAuth, clearAuth, startOAuthLogin, pollAntigravitySession } from "~/services/antigravity/login"
 import { accountManager } from "~/services/antigravity/account-manager"
 import { state } from "~/lib/state"
 import { authStore } from "~/services/auth/store"
@@ -123,28 +123,19 @@ authRouter.post("/login", async (c) => {
         if (!body.accessToken) {
             const result = await startOAuthLogin()
             if (result.success) {
-                accountManager.load()
-                if (state.accessToken && state.refreshToken) {
-                    accountManager.addAccount({
-                        id: state.userEmail || `account-${Date.now()}`,
-                        email: state.userEmail || "unknown",
-                        accessToken: state.accessToken,
-                        refreshToken: state.refreshToken,
-                        expiresAt: state.tokenExpiresAt || 0,
-                        projectId: state.cloudaicompanionProject,
-                    })
-                }
                 return c.json({
                     success: true,
-                    authenticated: true,
+                    status: "pending",
                     provider: "antigravity",
-                    email: result.email,
+                    authUrl: result.authUrl,
+                    sessionId: result.sessionId,
                 })
             } else {
                 return c.json({ success: false, error: result.error }, 400)
             }
         }
 
+        // Fallback for direct token auth
         setAuth(body.accessToken, body.refreshToken, body.email, body.name)
         accountManager.load()
         accountManager.addAccount({
@@ -165,6 +156,18 @@ authRouter.post("/login", async (c) => {
     } catch (error) {
         return c.json({ error: (error as Error).message }, 500)
     }
+})
+
+authRouter.get("/antigravity/status", async (c) => {
+    const sessionId = c.req.query("session_id")
+    if (!sessionId) {
+        return c.json({ success: false, error: "session_id required" }, 400)
+    }
+    const result = await pollAntigravitySession(sessionId)
+    return c.json({
+        success: result.status === "success",
+        ...result,
+    })
 })
 
 authRouter.get("/copilot/status", async (c) => {

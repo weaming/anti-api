@@ -70,11 +70,8 @@ const start = defineCommand({
         state.port = parseInt(args.port, 10)
         state.verbose = args.verbose
 
-        if (args.verbose) {
-            consola.level = 4 // debug
-        } else {
-            consola.level = 0 // silent
-        }
+        // Always enable debug logging by default
+        consola.level = 4 // debug
 
         // 尝试加载已保存的 OAuth 认证
         initAuth()

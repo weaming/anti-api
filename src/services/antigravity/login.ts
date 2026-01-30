@@ -18,6 +18,7 @@ import {
 } from "./oauth"
 import { generateMockProjectId } from "./project-id"
 import { ensureDataDir, getDataDir, getLegacyProjectDataDir } from "~/lib/data-dir"
+import { accountManager } from "./account-manager"
 
 const AUTH_FILE = join(getDataDir(), "auth.json")
 const LEGACY_AUTH_FILE = join(getLegacyProjectDataDir(), "auth.json")
@@ -29,6 +30,18 @@ interface AuthData {
     userName?: string
     expiresAt?: number
     projectId?: string
+}
+
+// 用于存储进行中的 Antigravity 登录会话
+const pendingAntigravitySessions = new Map<string, AntigravitySession>()
+
+interface AntigravitySession {
+    status: "pending" | "success" | "error"
+    server: any
+    waitForCallback: () => Promise<any>
+    redirectUri: string
+    oauthState: string
+    result?: any // 成功或失败的结果
 }
 
 /**
@@ -136,97 +149,133 @@ export function setAuth(accessToken: string, refreshToken?: string, email?: stri
 /**
  * 启动 OAuth 登录流程
  */
-export async function startOAuthLogin(): Promise<{ success: boolean; error?: string; email?: string }> {
-    let oauthServer: { stop: () => void } | null = null
+export async function startOAuthLogin(): Promise<{ success: boolean; error?: string; email?: string, authUrl?: string, sessionId?: string }> {
     try {
-
-        // 1. 启动回调服务器
-        const { server, port, waitForCallback } = await startOAuthCallbackServer()
-        oauthServer = server
-
-        // 2. 生成授权 URL
-        const oauthState = generateState()
-        const redirectUri = process.env.ANTI_API_OAUTH_REDIRECT_URL || `http://localhost:${port}/oauth-callback`
-        const authUrl = generateAuthURL(redirectUri, oauthState)
-
-        // 3. 打开浏览器
-        consola.info(`Open this URL to login: ${authUrl}`)
-        if (process.env.ANTI_API_OAUTH_NO_OPEN !== "1") {
-            try {
-                await Bun.$`open ${authUrl}`.quiet()
-            } catch {
-                consola.warn("Failed to open browser automatically")
-            }
-        }
-
-        // 4. 等待回调（5分钟超时）
-        const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error("Authentication timeout (5 minutes)")), 5 * 60 * 1000)
-        })
-
-        const callbackResult = await Promise.race([
-            waitForCallback(),
-            timeoutPromise,
-        ])
-
-        // 5. 关闭服务器
-        server.stop()
-        oauthServer = null
-
-        // 6. 检查回调结果
-        if (callbackResult.error) {
-            return { success: false, error: callbackResult.error }
-        }
-
-        if (!callbackResult.code || !callbackResult.state) {
-            return { success: false, error: "Missing code or state in callback" }
-        }
-
-        if (callbackResult.state !== oauthState) {
-            return { success: false, error: "State mismatch - possible CSRF attack" }
-        }
-
-        // 7. 交换 code 获取 tokens
-        const tokens = await exchangeCode(callbackResult.code, redirectUri)
-
-        // 8. 获取用户信息
-        const userInfo = await fetchUserInfo(tokens.accessToken)
-
-        // 9. 获取 Project ID
-        const projectId = await getProjectID(tokens.accessToken)
-        const resolvedProjectId = projectId || generateMockProjectId()
-        if (!projectId) {
-            consola.warn(`No project ID returned, using fallback: ${resolvedProjectId}`)
-        }
-
-        // 10. 保存认证信息
-        state.accessToken = tokens.accessToken
-        state.antigravityToken = tokens.accessToken
-        state.refreshToken = tokens.refreshToken
-        state.tokenExpiresAt = Date.now() + tokens.expiresIn * 1000
-        state.userEmail = userInfo.email
-        state.userName = userInfo.email.split("@")[0]
-        state.cloudaicompanionProject = resolvedProjectId
-
-        saveAuth()
-
-        consola.success(`✓ Login successful: ${userInfo.email}`)
-        consola.success(`✓ Project ID: ${resolvedProjectId}`)
-
-        return { success: true, email: userInfo.email }
+        const { authUrl, sessionId } = await startAntigravityDeviceFlow()
+        return { success: true, authUrl, sessionId }
     } catch (error) {
-        consola.error("OAuth login failed:", error)
         return { success: false, error: (error as Error).message }
-    } finally {
-        if (oauthServer) {
-            try {
-                oauthServer.stop()
-            } catch {
-                // Best-effort cleanup for abandoned OAuth attempts
-            }
-        }
     }
 }
+
+/**
+ * 启动 Antigravity 设备流程（用于浏览器端）
+ */
+export async function startAntigravityDeviceFlow(): Promise<{ authUrl: string; sessionId: string }> {
+    consola.debug("[Auth] Starting Antigravity device flow...")
+    // 1. 启动回调服务器
+    const { server, port, waitForCallback } = await startOAuthCallbackServer()
+
+    // 2. 生成授权 URL 和会话 ID
+    const sessionId = generateState() // 使用 state 作为 sessionId
+    const redirectUri = process.env.ANTI_API_OAUTH_REDIRECT_URL || `http://localhost:${port}/oauth-callback`
+    const authUrl = generateAuthURL(redirectUri, sessionId)
+    consola.debug(`[Auth] Session ${sessionId}: Auth URL created: ${authUrl}`)
+
+    // 3. 存储会话信息以供轮询
+    const session: AntigravitySession = {
+        status: "pending",
+        server,
+        waitForCallback,
+        redirectUri,
+        oauthState: sessionId,
+    }
+    pendingAntigravitySessions.set(sessionId, session)
+    consola.debug(`[Auth] Session ${sessionId}: Stored, waiting for callback.`)
+
+    // 4. 等待回调并在后台处理
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Authentication timeout (5 minutes)")), 5 * 60 * 1000)
+    })
+
+    Promise.race([waitForCallback(), timeoutPromise])
+        .then(result => {
+            consola.debug(`[Auth] Session ${sessionId}: Callback received.`)
+            session.status = "success"
+            session.result = result
+        })
+        .catch(error => {
+            consola.error(`[Auth] Session ${sessionId}: Error during callback wait: ${error.message}`)
+            session.status = "error"
+            session.result = error
+        })
+
+    return { authUrl, sessionId }
+}
+
+/**
+ * 轮询 Antigravity 登录状态
+ */
+export async function pollAntigravitySession(sessionId: string): Promise<{
+    status: "pending" | "success" | "error"
+    message?: string
+    account?: { id: string; email: string }
+}> {
+    consola.debug(`[Auth] Polling for session ${sessionId}...`)
+    const session = pendingAntigravitySessions.get(sessionId)
+    if (!session) {
+        consola.warn(`[Auth] Polling for session ${sessionId}: Not found.`)
+        return { status: "error", message: "Session not found or expired" }
+    }
+
+    if (session.status === "pending") {
+        consola.debug(`[Auth] Polling for session ${sessionId}: Still pending.`)
+        return { status: "pending", message: "Waiting for user authentication..." }
+    }
+
+    // 会话已完成（成功或失败），处理结果
+    consola.debug(`[Auth] Polling for session ${sessionId}: Completed with status '${session.status}'. Processing...`)
+    pendingAntigravitySessions.delete(sessionId)
+    consola.debug(`[Auth] Session ${sessionId}: Deleted from memory. Stopping server...`)
+    session.server.stop()
+    consola.debug(`[Auth] Session ${sessionId}: Server stopped.`)
+
+    if (session.status === "error") {
+        consola.error(`[Auth] Session ${sessionId}: Failed. Reason: ${session.result.message}`)
+        return { status: "error", message: session.result.message || "Authentication failed" }
+    }
+
+    try {
+        const callbackResult = session.result
+        if (callbackResult.error) {
+            consola.error(`[Auth] Session ${sessionId}: Callback result contained an error: ${callbackResult.error}`)
+            return { status: "error", message: callbackResult.error }
+        }
+        if (!callbackResult.code || !callbackResult.state || callbackResult.state !== session.oauthState) {
+            consola.error(`[Auth] Session ${sessionId}: Invalid callback state. Expected ${session.oauthState}, got ${callbackResult.state}`)
+            return { status: "error", message: "Invalid callback state" }
+        }
+        
+        consola.debug(`[Auth] Session ${sessionId}: Exchanging code for token...`)
+        const tokens = await exchangeCode(callbackResult.code, session.redirectUri)
+        consola.debug(`[Auth] Session ${sessionId}: Fetching user info...`)
+        const userInfo = await fetchUserInfo(tokens.accessToken)
+        consola.debug(`[Auth] Session ${sessionId}: Fetching project ID...`)
+        const projectId = await getProjectID(tokens.accessToken) || generateMockProjectId()
+
+        // 添加到多账号管理器
+        const account = {
+            id: userInfo.email,
+            email: userInfo.email,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            expiresAt: Date.now() + tokens.expiresIn * 1000,
+            projectId,
+        }
+        accountManager.addAccount(account)
+
+        consola.success(`✓ Antigravity account added: ${userInfo.email}`)
+        return {
+            status: "success",
+            message: `Connected: ${userInfo.email}`,
+            account: { id: userInfo.email, email: userInfo.email },
+        }
+    } catch (error: any) {
+        consola.error(`[Auth] Session ${sessionId}: Error during final processing: ${error.message}`)
+        return { status: "error", message: error.message || "Failed to finalize login" }
+    }
+}
+
 
 /**
  * 刷新 access token
