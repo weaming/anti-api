@@ -39,7 +39,18 @@ if "%COMPOSE_CMD%"=="" (
     exit /b 1
 )
 
-echo Starting anti-api ^(Docker, port %PORT%^)...
+if "%BUILD_FLAG%"=="--build" (
+    echo Running host build...
+    where bun >nul 2>&1
+    if %errorlevel% equ 0 (
+        call bun run build
+    ) else (
+        echo Error: bun is not installed on host. Cannot run host build.
+        exit /b 1
+    )
+)
+
+echo Starting anti-api (Docker, port %PORT%)...
 %COMPOSE_CMD% up -d %BUILD_FLAG%
 if %errorlevel% neq 0 (
     echo Failed to start Docker service.

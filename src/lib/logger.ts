@@ -55,7 +55,7 @@ export function logStartup(port: number): void {
  */
 export function logStartupSuccess(port: number): void {
     console.log(`Succeed. PID: ${process.pid}.`)
-    console.log(`listen on: http://localhost:${port}/quota`)
+    console.log(`listen on: http://0.0.0.0:${port}/quota`)
     console.log("")
     console.log(SEPARATOR)
     console.log("")

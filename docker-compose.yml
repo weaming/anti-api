@@ -1,5 +1,7 @@
 services:
   anti-api:
+    image: anti-api
+    container_name: anti-api
     build:
       context: .
       args:

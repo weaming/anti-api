@@ -32,6 +32,16 @@ if [ -z "$COMPOSE_CMD" ]; then
     exit 1
 fi
 
+if [ "$BUILD_FLAG" = "--build" ]; then
+    echo "Running host build..."
+    if command -v bun >/dev/null 2>&1; then
+        bun run build
+    else
+        echo "Error: bun is not installed on host. Cannot run host build."
+        exit 1
+    fi
+fi
+
 echo "Starting anti-api (Docker, port ${PORT})..."
 $COMPOSE_CMD up -d $BUILD_FLAG
 if [ $? -ne 0 ]; then
