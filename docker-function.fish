@@ -15,8 +15,6 @@ function docker-run-anti-api
         -e ANTI_API_OAUTH_NO_OPEN=1 \
         -e ANTI_API_NO_OPEN=1 \
         -v "$HOME/.anti-api:/app/data" \
-        -v "./src:/app/src" \
-        -v "./public:/app/public" \
         --restart unless-stopped \
         weaming/anti-api
 
