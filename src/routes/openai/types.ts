@@ -10,6 +10,7 @@ export interface OpenAIChatCompletionRequest {
     temperature?: number
     top_p?: number
     tools?: OpenAITool[]
+    tool_choice?: "none" | "auto" | "required" | { type: "function"; function: { name: string } }
 }
 
 export interface OpenAIMessage {

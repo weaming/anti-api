@@ -16,6 +16,7 @@ import {
     buildStreamChunk,
     mapStopReason,
 } from "./translator"
+import { translateToolChoice } from "./tool-choice"
 import { validateChatRequest } from "~/lib/validation"
 import { rateLimiter } from "~/lib/rate-limiter"
 import { forwardError, summarizeUpstreamError, UpstreamError } from "~/lib/error"
@@ -38,9 +39,10 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
         }
         const messages = translateMessages(payload.messages)
         const tools = translateTools(payload.tools)
+        const toolChoice = translateToolChoice(payload.tool_choice)
 
         if (payload.stream) {
-            return handleStreamCompletion(c, payload, anthropicModel, messages, tools)
+            return handleStreamCompletion(c, payload, anthropicModel, messages, tools, toolChoice)
         }
 
         let result
@@ -49,6 +51,7 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
                 model: anthropicModel,
                 messages,
                 tools,
+                toolChoice,
                 maxTokens: payload.max_tokens || 4096,
             })
         } catch (error) {
@@ -69,7 +72,7 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
             }
         }
 
-        const message: any = { role: "assistant", content: toolCalls.length > 0 ? null : textContent }
+        const message: any = { role: "assistant", content: textContent || "" }
         if (toolCalls.length > 0) {
             message.tool_calls = toolCalls.map((tc) => ({
                 id: tc.id,
@@ -110,7 +113,8 @@ async function handleStreamCompletion(
     payload: OpenAIChatCompletionRequest,
     anthropicModel: string,
     messages: any[],
-    tools: any[] | undefined
+    tools: any[] | undefined,
+    toolChoice: any | undefined
 ): Promise<Response> {
     const chatId = generateChatId()
 
@@ -120,6 +124,7 @@ async function handleStreamCompletion(
                 model: anthropicModel,
                 messages,
                 tools,
+                toolChoice,
                 maxTokens: payload.max_tokens || 4096,
             })
 

@@ -21,6 +21,7 @@ export interface RoutedRequest {
     model: string
     messages: ClaudeMessage[]
     tools?: ClaudeTool[]
+    toolChoice?: any
     maxTokens?: number
 }
 

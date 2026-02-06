@@ -1,221 +1,319 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Connect - Integration Guide</title>
-    <link rel="icon"
-        href="https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://antigravity.google&size=32"
-        type="image/x-icon">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <style>
-        :root {
-            --anti-blue: #4796E3;
-            --anti-purple: #6b4da3;
-            --white-glow: #ffffff;
-            --dark-purple: #3b2a54;
-            --pure-black: #000000;
-            --warm-dark: #262624;
-        }
-
-        body {
-            background: var(--pure-black);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            color: #d1d5db;
-        }
-
-        @media (prefers-color-scheme: light) {
-            body {
-                background: var(--warm-dark);
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Connect - Integration Guide</title>
+        <link
+            rel="icon"
+            href="https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://antigravity.google&size=32"
+            type="image/x-icon"
+        />
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css"
+        />
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+        <style>
+            :root {
+                --anti-blue: #4796e3;
+                --anti-purple: #6b4da3;
+                --white-glow: #ffffff;
+                --dark-purple: #3b2a54;
+                --pure-black: #000000;
+                --warm-dark: #262624;
             }
-        }
 
-        /* Iframe mode styles */
-        body.iframe-mode {
-            padding: 0 !important;
-            background: transparent !important;
-        }
+            body {
+                background: var(--pure-black);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    sans-serif;
+                color: #d1d5db;
+            }
 
-        body.iframe-mode .main-container {
-            max-width: 100% !important;
-            margin: 0 !important;
-            padding: 8px !important;
-        }
+            @media (prefers-color-scheme: light) {
+                body {
+                    background: var(--warm-dark);
+                }
+            }
 
-        body.iframe-mode header {
-            display: none !important;
-        }
+            /* Iframe mode styles */
+            body.iframe-mode {
+                padding: 0 !important;
+                background: transparent !important;
+            }
 
-        /* Card Styles */
-        .card {
-            background: rgba(30, 30, 30, 0.4);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            transition: all 0.2s ease;
-        }
+            body.iframe-mode .main-container {
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 8px !important;
+            }
 
-        .card:hover {
-            border-color: rgba(255, 255, 255, 0.2);
-            background: rgba(30, 30, 30, 0.6);
-        }
+            body.iframe-mode header {
+                display: none !important;
+            }
 
-        /* Code Block Styles */
-        .hljs {
-            background: transparent !important;
-            padding: 0 !important;
-        }
+            /* Card Styles */
+            .card {
+                background: rgba(30, 30, 30, 0.4);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(10px);
+                transition: all 0.2s ease;
+            }
 
-        .code-header {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
+            .card:hover {
+                border-color: rgba(255, 255, 255, 0.2);
+                background: rgba(30, 30, 30, 0.6);
+            }
 
-        .copy-btn {
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
+            /* Code Block Styles */
+            .hljs {
+                background: transparent !important;
+                padding: 0 !important;
+            }
 
-        .code-block-container:hover .copy-btn {
-            opacity: 1;
-        }
+            .code-header {
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
 
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
+            .copy-btn {
+                opacity: 0;
+                transition: opacity 0.2s;
+            }
 
-        ::-webkit-scrollbar-track {
-            background: rgba(0, 0, 0, 0.2);
-        }
+            .code-block-container:hover .copy-btn {
+                opacity: 1;
+            }
 
-        ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-        }
+            /* Custom Scrollbar */
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
 
-        ::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-    </style>
-</head>
+            ::-webkit-scrollbar-track {
+                background: rgba(0, 0, 0, 0.2);
+            }
 
-<body class="min-h-screen p-6">
-    <script>
-        if (window.self !== window.top) {
-            document.body.classList.add('iframe-mode');
-        }
-        hljs.highlightAll();
-    </script>
+            ::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 4px;
+            }
 
-    <div class="max-w-5xl mx-auto main-container space-y-8">
-        <header class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-200">Integration Guide</h1>
-            <p class="text-gray-500 mt-2">Connect your applications to Anti-API using standard protocols.</p>
-        </header>
+            ::-webkit-scrollbar-thumb:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+        </style>
+    </head>
 
-        <!-- Configuration Info -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="card rounded-xl p-6">
-                <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
-                    Endpoints
-                </h3>
-                <div class="space-y-4 text-sm">
-                    <div>
-                        <div class="text-gray-500 mb-1">Base URL (Local)</div>
-                        <div
-                            class="font-mono text-cyan-300 bg-black/30 px-3 py-2 rounded flex justify-between items-center group">
-                            <span>http://localhost:8964</span>
-                            <button onclick="copyText('http://localhost:8964')"
-                                class="text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z">
-                                    </path>
-                                </svg>
-                            </button>
-                        </div>
-                        <div id="remote-url-container" class="hidden mt-2">
-                            <div class="text-gray-500 mb-1">Base URL (Remote)</div>
+    <body class="min-h-screen p-6">
+        <script>
+            if (window.self !== window.top) {
+                document.body.classList.add("iframe-mode");
+            }
+            hljs.highlightAll();
+        </script>
+
+        <div class="max-w-5xl mx-auto main-container space-y-8">
+            <header class="mb-8">
+                <h1 class="text-3xl font-bold text-gray-200">
+                    Integration Guide
+                </h1>
+                <p class="text-gray-500 mt-2">
+                    Connect your applications to Anti-API using standard
+                    protocols.
+                </p>
+            </header>
+
+            <!-- Configuration Info -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="card rounded-xl p-6">
+                    <h3
+                        class="text-lg font-semibold text-white mb-4 flex items-center gap-2"
+                    >
+                        <svg
+                            class="w-5 h-5 text-cyan-400"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            ></path>
+                        </svg>
+                        Endpoints
+                    </h3>
+                    <div class="space-y-4 text-sm">
+                        <div>
+                            <div class="text-gray-500 mb-1">
+                                Base URL (Local)
+                            </div>
                             <div
-                                class="font-mono text-purple-300 bg-black/30 px-3 py-2 rounded flex justify-between items-center group">
-                                <span id="remote-url-text">...</span>
-                                <button onclick="copyText(document.getElementById('remote-url-text').textContent)"
-                                    class="text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z">
-                                        </path>
+                                class="font-mono text-cyan-300 bg-black/30 px-3 py-2 rounded flex justify-between items-center group"
+                            >
+                                <span>http://localhost:8964</span>
+                                <button
+                                    onclick="copyText('http://localhost:8964')"
+                                    class="text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                    <svg
+                                        class="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                                        ></path>
                                     </svg>
                                 </button>
                             </div>
+                            <div id="remote-url-container" class="hidden mt-2">
+                                <div class="text-gray-500 mb-1">
+                                    Base URL (Remote)
+                                </div>
+                                <div
+                                    class="font-mono text-purple-300 bg-black/30 px-3 py-2 rounded flex justify-between items-center group"
+                                >
+                                    <span id="remote-url-text">...</span>
+                                    <button
+                                        onclick="copyText(document.getElementById('remote-url-text').textContent)"
+                                        class="text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        <svg
+                                            class="w-4 h-4"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                                            ></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div
+                            class="grid grid-cols-2 gap-4 pt-2 border-t border-gray-700/50"
+                        >
+                            <div>
+                                <div class="text-gray-500 mb-1">
+                                    OpenAI Compatible
+                                </div>
+                                <div class="font-mono text-gray-300 text-xs">
+                                    /v1/chat/completions
+                                </div>
+                                <div class="font-mono text-gray-300 text-xs">
+                                    /v1/models
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 mb-1">
+                                    Anthropic Compatible
+                                </div>
+                                <div class="font-mono text-gray-300 text-xs">
+                                    /v1/messages
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="grid grid-cols-2 gap-4 pt-2 border-t border-gray-700/50">
-                        <div>
-                            <div class="text-gray-500 mb-1">OpenAI Compatible</div>
-                            <div class="font-mono text-gray-300 text-xs">/v1/chat/completions</div>
-                            <div class="font-mono text-gray-300 text-xs">/v1/models</div>
-                        </div>
-                        <div>
-                            <div class="text-gray-500 mb-1">Anthropic Compatible</div>
-                            <div class="font-mono text-gray-300 text-xs">/v1/messages</div>
-                        </div>
+                </div>
+
+                <div class="card rounded-xl p-6">
+                    <h3
+                        class="text-lg font-semibold text-white mb-4 flex items-center gap-2"
+                    >
+                        <svg
+                            class="w-5 h-5 text-green-400"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11.536 9.636 10.122 8.222a2 2 0 01-.422-.577 5.993 5.993 0 01-2.293-5.743 6 6 0 1112.19 3zM6.5 17h11"
+                            ></path>
+                        </svg>
+                        Authentication & Routing
+                    </h3>
+                    <div class="text-sm space-y-4 text-gray-400">
+                        <p>
+                            <strong class="text-gray-200">API Key:</strong> Use
+                            any string (e.g.,
+                            <code class="bg-gray-800 px-1 rounded"
+                                >sk-antigravity</code
+                            >). Required by most SDKs but ignored by Anti-API
+                            validation.
+                        </p>
+                        <p>
+                            <strong class="text-gray-200"
+                                >Account Routing:</strong
+                            >
+                            Configure model routing rules in the
+                            <a
+                                href="/routing.html"
+                                target="_blank"
+                                class="text-cyan-400 hover:underline"
+                                >Routing</a
+                            >
+                            tab. Anti-API automatically handles load balancing
+                            and failover between your connected accounts.
+                        </p>
+                        <p
+                            class="text-xs text-gray-500 pt-2 border-t border-gray-700/50"
+                        >
+                            Note: Privacy Mode masks PII in logs but does not
+                            affect API responses.
+                        </p>
                     </div>
                 </div>
             </div>
 
-            <div class="card rounded-xl p-6">
-                <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11.536 9.636 10.122 8.222a2 2 0 01-.422-.577 5.993 5.993 0 01-2.293-5.743 6 6 0 1112.19 3zM6.5 17h11">
-                        </path>
-                    </svg>
-                    Authentication & Routing
-                </h3>
-                <div class="text-sm space-y-4 text-gray-400">
-                    <p>
-                        <strong class="text-gray-200">API Key:</strong> Use any string (e.g., <code
-                            class="bg-gray-800 px-1 rounded">sk-antigravity</code>).
-                        Required by most SDKs but ignored by Anti-API validation.
-                    </p>
-                    <p>
-                        <strong class="text-gray-200">Account Routing:</strong>
-                        Configure model routing rules in the <a href="/routing.html" target="_blank"
-                            class="text-cyan-400 hover:underline">Routing</a> tab.
-                        Anti-API automatically handles load balancing and failover between your connected accounts.
-                    </p>
-                    <p class="text-xs text-gray-500 pt-2 border-t border-gray-700/50">
-                        Note: Privacy Mode masks PII in logs but does not affect API responses.
-                    </p>
-                </div>
-            </div>
-        </div>
+            <!-- Integration Examples -->
+            <div class="space-y-6">
+                <h2
+                    class="text-xl font-bold text-gray-200 border-b border-gray-800 pb-2"
+                >
+                    Code Examples
+                </h2>
 
-        <!-- Integration Examples -->
-        <div class="space-y-6">
-            <h2 class="text-xl font-bold text-gray-200 border-b border-gray-800 pb-2">Code Examples</h2>
-
-            <!-- Python / OpenAI -->
-            <div class="card rounded-xl overflow-hidden code-block-container">
-                <div class="bg-black/40 px-4 py-2 flex items-center justify-between code-header">
-                    <div class="flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
-                        <span class="text-sm font-medium text-gray-300">Python (OpenAI SDK)</span>
+                <!-- Python / OpenAI -->
+                <div
+                    class="card rounded-xl overflow-hidden code-block-container"
+                >
+                    <div
+                        class="bg-black/40 px-4 py-2 flex items-center justify-between code-header"
+                    >
+                        <div class="flex items-center gap-2">
+                            <span
+                                class="w-2 h-2 rounded-full bg-yellow-400"
+                            ></span>
+                            <span class="text-sm font-medium text-gray-300"
+                                >Python (OpenAI SDK)</span
+                            >
+                        </div>
+                        <button
+                            onclick="copyCode(this)"
+                            class="copy-btn text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded transition-colors"
+                        >
+                            Copy
+                        </button>
                     </div>
-                    <button onclick="copyCode(this)"
-                        class="copy-btn text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded transition-colors">Copy</button>
-                </div>
-                <div class="p-4 bg-black/20">
-                    <pre><code class="language-python">from openai import OpenAI
+                    <div class="p-4 bg-black/20">
+                        <pre><code class="language-python">from openai import OpenAI
 
 client = OpenAI(
     base_url="http://localhost:8964/v1",
@@ -231,21 +329,33 @@ response = client.chat.completions.create(
 for chunk in response:
     if chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="")</code></pre>
-                </div>
-            </div>
-
-            <!-- Node.js / Anthropic -->
-            <div class="card rounded-xl overflow-hidden code-block-container">
-                <div class="bg-black/40 px-4 py-2 flex items-center justify-between code-header">
-                    <div class="flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-purple-400"></span>
-                        <span class="text-sm font-medium text-gray-300">Node.js (Anthropic SDK)</span>
                     </div>
-                    <button onclick="copyCode(this)"
-                        class="copy-btn text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded transition-colors">Copy</button>
                 </div>
-                <div class="p-4 bg-black/20">
-                    <pre><code class="language-javascript">import Anthropic from '@anthropic-ai/sdk';
+
+                <!-- Node.js / Anthropic -->
+                <div
+                    class="card rounded-xl overflow-hidden code-block-container"
+                >
+                    <div
+                        class="bg-black/40 px-4 py-2 flex items-center justify-between code-header"
+                    >
+                        <div class="flex items-center gap-2">
+                            <span
+                                class="w-2 h-2 rounded-full bg-purple-400"
+                            ></span>
+                            <span class="text-sm font-medium text-gray-300"
+                                >Node.js (Anthropic SDK)</span
+                            >
+                        </div>
+                        <button
+                            onclick="copyCode(this)"
+                            class="copy-btn text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded transition-colors"
+                        >
+                            Copy
+                        </button>
+                    </div>
+                    <div class="p-4 bg-black/20">
+                        <pre><code class="language-javascript">import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic({
   baseURL: 'http://localhost:8964/v1', // SDK appends /messages
@@ -259,21 +369,33 @@ const msg = await client.messages.create({
 });
 
 console.log(msg.content);</code></pre>
-                </div>
-            </div>
-
-            <!-- cURL -->
-            <div class="card rounded-xl overflow-hidden code-block-container">
-                <div class="bg-black/40 px-4 py-2 flex items-center justify-between code-header">
-                    <div class="flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-gray-400"></span>
-                        <span class="text-sm font-medium text-gray-300">cURL</span>
                     </div>
-                    <button onclick="copyCode(this)"
-                        class="copy-btn text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded transition-colors">Copy</button>
                 </div>
-                <div class="p-4 bg-black/20">
-                    <pre><code class="language-bash">curl http://localhost:8964/v1/chat/completions \
+
+                <!-- cURL -->
+                <div
+                    class="card rounded-xl overflow-hidden code-block-container"
+                >
+                    <div
+                        class="bg-black/40 px-4 py-2 flex items-center justify-between code-header"
+                    >
+                        <div class="flex items-center gap-2">
+                            <span
+                                class="w-2 h-2 rounded-full bg-gray-400"
+                            ></span>
+                            <span class="text-sm font-medium text-gray-300"
+                                >cURL</span
+                            >
+                        </div>
+                        <button
+                            onclick="copyCode(this)"
+                            class="copy-btn text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded transition-colors"
+                        >
+                            Copy
+                        </button>
+                    </div>
+                    <div class="p-4 bg-black/20">
+                        <pre><code class="language-bash">curl http://localhost:8964/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-antigravity" \
   -d '{
@@ -281,50 +403,220 @@ console.log(msg.content);</code></pre>
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'</code></pre>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Copy Toast -->
-    <div id="toast"
-        class="fixed bottom-8 right-8 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300">
-        Copied to clipboard
-    </div>
+        <!-- VS Code Extensions -->
+        <div class="space-y-6">
+            <h2
+                class="text-xl font-bold text-gray-200 border-b border-gray-800 pb-2"
+            >
+                VS Code Extensions
+            </h2>
 
-    <script>
-        // Check for remote URL
-        async function checkRemote() {
-            try {
-                const res = await fetch('/tunnel/status');
-                const data = await res.json();
-                if (data.active && data.url) {
-                    document.getElementById('remote-url-text').textContent = data.url;
-                    document.getElementById('remote-url-container').classList.remove('hidden');
+            <!-- Roo Code / Cline -->
+            <div class="card rounded-xl overflow-hidden code-block-container">
+                <div
+                    class="bg-black/40 px-4 py-2 flex items-center justify-between code-header"
+                >
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+                        <span class="text-sm font-medium text-gray-300"
+                            >Roo Code / Cline</span
+                        >
+                    </div>
+                </div>
+                <div class="p-4 bg-black/20 text-sm text-gray-300 space-y-4">
+                    <!-- Tab buttons -->
+                    <div class="flex gap-2 border-b border-gray-700/50 pb-2">
+                        <button
+                            onclick="switchTab('anthropic')"
+                            id="tab-anthropic"
+                            class="px-3 py-1 rounded text-xs transition-colors bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                        >
+                            Anthropic (推荐)
+                        </button>
+                        <button
+                            onclick="switchTab('openai')"
+                            id="tab-openai"
+                            class="px-3 py-1 rounded text-xs transition-colors text-gray-400 hover:text-gray-300"
+                        >
+                            OpenAI Compatible
+                        </button>
+                    </div>
+
+                    <!-- Anthropic Tab Content -->
+                    <div id="content-anthropic" class="tab-content">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <div class="text-gray-500 text-xs mb-1">
+                                    API Provider
+                                </div>
+                                <div
+                                    class="font-mono bg-black/30 px-2 py-1 rounded"
+                                >
+                                    Anthropic
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 text-xs mb-1">
+                                    Base URL
+                                </div>
+                                <div
+                                    class="font-mono bg-black/30 px-2 py-1 rounded"
+                                >
+                                    http://localhost:8964
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 text-xs mb-1">
+                                    API Key
+                                </div>
+                                <div
+                                    class="font-mono bg-black/30 px-2 py-1 rounded"
+                                >
+                                    sk-antigravity
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 text-xs mb-1">
+                                    Model ID
+                                </div>
+                                <div
+                                    class="font-mono bg-black/30 px-2 py-1 rounded"
+                                >
+                                    claude-sonnet-4-5
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- OpenAI Tab Content -->
+                    <div id="content-openai" class="tab-content hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <div class="text-gray-500 text-xs mb-1">
+                                    API Provider
+                                </div>
+                                <div
+                                    class="font-mono bg-black/30 px-2 py-1 rounded"
+                                >
+                                    OpenAI Compatible
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 text-xs mb-1">
+                                    Base URL
+                                </div>
+                                <div
+                                    class="font-mono bg-black/30 px-2 py-1 rounded"
+                                >
+                                    http://localhost:8964/v1
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 text-xs mb-1">
+                                    API Key
+                                </div>
+                                <div
+                                    class="font-mono bg-black/30 px-2 py-1 rounded"
+                                >
+                                    sk-antigravity
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 text-xs mb-1">
+                                    Model ID
+                                </div>
+                                <div
+                                    class="font-mono bg-black/30 px-2 py-1 rounded"
+                                >
+                                    claude-sonnet-4-5
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Copy Toast -->
+        <div
+            id="toast"
+            class="fixed bottom-8 right-8 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300"
+        >
+            Copied to clipboard
+        </div>
+
+        <script>
+            // Check for remote URL
+            async function checkRemote() {
+                try {
+                    const res = await fetch("/tunnel/status");
+                    const data = await res.json();
+                    if (data.active && data.url) {
+                        document.getElementById("remote-url-text").textContent =
+                            data.url;
+                        document
+                            .getElementById("remote-url-container")
+                            .classList.remove("hidden");
+                    }
+                } catch (e) {
+                    console.error("Failed to check remote status", e);
                 }
-            } catch (e) {
-                console.error('Failed to check remote status', e);
             }
-        }
-        checkRemote();
+            checkRemote();
 
-        function copyText(text) {
-            navigator.clipboard.writeText(text).then(() => showToast());
-        }
+            function copyText(text) {
+                navigator.clipboard.writeText(text).then(() => showToast());
+            }
 
-        function copyCode(btn) {
-            const code = btn.closest('.code-block-container').querySelector('code').textContent;
-            copyText(code);
-        }
+            function copyCode(btn) {
+                const code = btn
+                    .closest(".code-block-container")
+                    .querySelector("code").textContent;
+                copyText(code);
+            }
 
-        function showToast() {
-            const toast = document.getElementById('toast');
-            toast.classList.remove('translate-y-20', 'opacity-0');
-            setTimeout(() => {
-                toast.classList.add('translate-y-20', 'opacity-0');
-            }, 2000);
-        }
-    </script>
-</body>
+            function showToast() {
+                const toast = document.getElementById("toast");
+                toast.classList.remove("translate-y-20", "opacity-0");
+                setTimeout(() => {
+                    toast.classList.add("translate-y-20", "opacity-0");
+                }, 2000);
+            }
 
+            // Tab switching for Roo configuration
+            function switchTab(tab) {
+                const openaiBtn = document.getElementById("tab-openai");
+                const anthropicBtn = document.getElementById("tab-anthropic");
+
+                if (tab === "openai") {
+                    openaiBtn.className =
+                        "px-3 py-1 rounded text-xs transition-colors bg-blue-500/20 text-blue-300 border border-blue-500/30";
+                    anthropicBtn.className =
+                        "px-3 py-1 rounded text-xs transition-colors text-gray-400 hover:text-gray-300";
+                    document
+                        .getElementById("content-openai")
+                        .classList.remove("hidden");
+                    document
+                        .getElementById("content-anthropic")
+                        .classList.add("hidden");
+                } else {
+                    anthropicBtn.className =
+                        "px-3 py-1 rounded text-xs transition-colors bg-purple-500/20 text-purple-300 border border-purple-500/30";
+                    openaiBtn.className =
+                        "px-3 py-1 rounded text-xs transition-colors text-gray-400 hover:text-gray-300";
+                    document
+                        .getElementById("content-anthropic")
+                        .classList.remove("hidden");
+                    document
+                        .getElementById("content-openai")
+                        .classList.add("hidden");
+                }
+            }
+        </script>
+    </body>
 </html>

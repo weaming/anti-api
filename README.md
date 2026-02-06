@@ -48,6 +48,24 @@ docker compose up -d
 
 ## ⚙️ 配置说明
 
+### Roo Code / Cline (VS Code 插件) 配置
+
+**方式一:Anthropic 格式(推荐)**
+
+1. **API Provider**: 选择 `Anthropic`
+2. **Base URL**: `http://localhost:8964`
+3. **API Key**: `sk-antigravity` (任意字符)
+4. **Model ID**: `claude-sonnet-4-5` (推荐) 或 `gemini-3-flash`
+
+> 💡 使用 Anthropic 格式可以获得更好的兼容性和稳定性
+
+**方式二:OpenAI Compatible 格式**
+
+1. **API Provider**: 选择 `OpenAI Compatible`
+2. **Base URL**: `http://localhost:8964/v1`
+3. **API Key**: `sk-antigravity` (任意字符)
+4. **Model ID**: `claude-sonnet-4-5` (推荐) 或 `gemini-3-flash`
+
 ### Claude Code 配置
 
 添加到 `~/.claude/settings.json`:
