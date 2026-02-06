@@ -17,8 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV NODE_ENV=production
 
 # 1. Only install native dependencies in the container
-COPY package.json ./
-RUN bun add better-sqlite3 --production --no-progress
+# 1. Install dependencies
+COPY package.json bun.lock ./
+RUN bun install --production --frozen-lockfile
 
 # 2. Copy the pre-built bundle from the host (run 'bun run build' on host first)
 COPY dist ./dist

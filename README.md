@@ -6,8 +6,6 @@
 
 ---
 
-> **注意**：本项目基于 Antigravity 逆向，未来兼容性无法保证。长期使用建议避免更新 Antigravity。
-
 ## ✨ 特性
 
 - **🎯 智能路由** - 支持自定义 flow (route:fast) 和官方模型 ID (claude-3-5-sonnet) 的混合路由
@@ -32,10 +30,14 @@
 ### Docker 运行
 
 ```bash
+# 构建镜像
+docker build -t anti-api .
+
+# 运行容器
 docker run --rm -it \
   -p 8964:8964 \
   -v $HOME/.anti-api:/app/data \
-  ghcr.io/weaming/anti-api:latest
+  anti-api
 ```
 
 或者使用 `docker-compose.yml`:
