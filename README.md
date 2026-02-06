@@ -17,6 +17,12 @@
 - **⚡ 双格式** - 同时兼容 OpenAI 和 Anthropic API 格式
 - **🛠️ 工具调用** - 支持 Function Calling，完美适配 Claude Code
 
+## 🧠 支持的模型
+
+- **Claude**: `claude-sonnet-4-5`, `claude-sonnet-4-5-thinking`, `claude-opus-4-5-thinking`
+- **Gemini**: `gemini-3-pro-high`, `gemini-3-pro-low`, `gemini-3-flash`
+- **GPT**: `gpt-oss-120b`
+
 ## 🚀 快速开始
 
 ### macOS 直接运行

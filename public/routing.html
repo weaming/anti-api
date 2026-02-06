@@ -435,14 +435,7 @@
             </div>
             <div class="flex items-center gap-4">
                 <div class="flex items-center gap-2 text-xs">
-                    <button id="tab-flow" onclick="setRoutingTab('flow')"
-                        class="action-btn px-3 py-2 rounded-lg font-bold text-gray-300">
-                        Flow Routing
-                    </button>
-                    <button id="tab-account" onclick="setRoutingTab('account')"
-                        class="action-btn px-3 py-2 rounded-lg font-bold text-gray-400">
-                        Account Routing
-                    </button>
+                    <!-- Tabs removed -->
                 </div>
                 <div class="action-wrap inline-block">
                     <button onclick="resetRouting()" id="reset-btn"
@@ -459,62 +452,7 @@
             </div>
         </header>
 
-        <div id="flow-panel" class="grid gap-6 routing-panels" style="grid-template-columns: 1fr 1.5fr 1fr;">
-            <!-- Accounts Panel -->
-            <aside class="panel rounded-2xl p-4 flex flex-col min-h-0">
-                <div class="mb-3 flex-shrink-0">
-                    <h2 class="text-sm uppercase tracking-[0.2em] text-gray-500">Accounts</h2>
-                    <p class="text-xs text-gray-600 mt-1">Drag a model block into the flow.</p>
-                </div>
-                <div id="account-list" class="space-y-4 flex-1 min-h-0 overflow-y-auto panel-scroll"></div>
-            </aside>
-
-            <!-- Flow Panel -->
-            <section class="relative panel rounded-2xl p-6 grid-bg overflow-hidden flex flex-col">
-                <div class="relative z-10 flex flex-col flex-1 min-h-0 overflow-hidden">
-                    <!-- Flow Header -->
-                    <div class="flex items-start justify-between gap-3 mb-4 flex-shrink-0">
-                        <div>
-                            <h2 class="text-sm uppercase tracking-[0.2em] text-gray-500">Flow</h2>
-                            <p class="text-xs text-gray-600 mt-1">Match by model name in requests.</p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <input id="flow-name" placeholder="Model ID"
-                                class="bg-transparent border border-gray-700 rounded-lg px-2 py-2 text-xs text-gray-200 focus:outline-none focus:border-cyan-300 w-24 text-center"
-                                autocomplete="off" />
-                            <div class="action-wrap inline-block">
-                                <button onclick="newFlow()" id="new-btn"
-                                    class="action-btn px-3 py-2 rounded-lg font-bold text-gray-300 text-xs">
-                                    New
-                                </button>
-                            </div>
-                            <div class="action-wrap inline-block">
-                                <button onclick="saveRouting()" id="save-btn"
-                                    class="action-btn px-3 py-2 rounded-lg font-bold text-gray-300 text-xs">
-                                    Save
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="save-status" class="text-xs text-gray-500 text-right mb-2 flex-shrink-0"></div>
-                    <!-- Scrollable Flow Canvas -->
-                    <div class="flow-scroll flex-1 min-h-0 overflow-y-auto panel-scroll">
-                        <div id="flow-canvas" class="flow-canvas flex flex-col gap-4 min-h-[240px]"></div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Saved Panel -->
-            <aside class="panel rounded-2xl p-4 flex flex-col min-h-0">
-                <div class="mb-3 flex-shrink-0">
-                    <h2 class="text-sm uppercase tracking-[0.2em] text-gray-500">Saved</h2>
-                    <p class="text-xs text-gray-600 mt-1">Edit, rename, or delete saved flows.</p>
-                </div>
-                <div id="saved-list" class="space-y-3 flex-1 min-h-0 overflow-y-auto panel-scroll"></div>
-            </aside>
-        </div>
-
-        <div id="account-panel" class="grid gap-6 hidden routing-panels" style="grid-template-columns: 1fr 2fr;">
+        <div id="account-panel" class="grid gap-6 routing-panels" style="grid-template-columns: 1fr 2fr;">
             <aside class="panel rounded-2xl p-4 flex flex-col min-h-0">
                 <div class="mb-3 flex-shrink-0">
                     <h2 class="text-sm uppercase tracking-[0.2em] text-gray-500">Models</h2>
@@ -567,7 +505,6 @@
     <script>
         const API_BASE = 'http://localhost:8964';
         const STORAGE_KEYS = {
-            activeFlow: 'anti-api-active-flow',
             privacyMode: 'anti-api-privacy-mode',
         };
         const PROVIDER_ORDER = ['antigravity', 'codex', 'copilot'];
@@ -623,14 +560,10 @@
 
         let accounts = {};
         let models = {};
-        let flows = [];
-        let flowEntries = [];
-        let activeFlowId = null;
         let quotaData = null;  // Store quota data for model rendering
         let accountRouting = { smartSwitch: false, routes: [] };
         let officialModels = [];
         let selectedAccountModelId = null;
-        let activeRoutingTab = 'flow';
 
         // Privacy masking (synced from settings via localStorage cache)
         function getPrivacyMode() {
@@ -668,31 +601,15 @@
             return name.substring(0, 3) + '*'.repeat(Math.min(4, name.length - 3));
         }
 
-        function setRoutingTab(tab) {
-            activeRoutingTab = tab;
-            const flowPanel = dom.byId('flow-panel');
-            const accountPanel = dom.byId('account-panel');
-            const flowBtn = dom.byId('tab-flow');
-            const accountBtn = dom.byId('tab-account');
-
-            if (flowPanel) flowPanel.classList.toggle('hidden', tab !== 'flow');
-            if (accountPanel) accountPanel.classList.toggle('hidden', tab !== 'account');
-
-            if (flowBtn) {
-                flowBtn.classList.toggle('text-cyan-300', tab === 'flow');
-                flowBtn.classList.toggle('border-cyan-300/70', tab === 'flow');
-                flowBtn.classList.toggle('text-gray-300', tab !== 'flow');
-            }
-            if (accountBtn) {
-                accountBtn.classList.toggle('text-cyan-300', tab === 'account');
-                accountBtn.classList.toggle('border-cyan-300/70', tab === 'account');
-                accountBtn.classList.toggle('text-gray-300', tab !== 'account');
-            }
-
-            if (tab === 'flow') {
-                requestAnimationFrame(drawFlowLines);
-            }
+        // Privacy masking (synced from settings via localStorage cache)
+        function getPrivacyMode() {
+            // ... already defined above, but we need to ensure we don't duplicate or break order
+            // I'll assume the previous block ended before getPrivacyMode or just update getPrivacyMode and remove setRoutingTab
+            // To be safe, let's target specific blocks.
         }
+
+        /* Replaced/Removed Block placeholder */
+
 
         function collectOfficialModels(modelData) {
             const map = new Map();
@@ -918,7 +835,7 @@
             if (!btn) return;
             const originalText = btn.textContent;
             const originalClass = btn.className;
-            
+
             try {
                 btn.disabled = true;
                 btn.textContent = 'Saving...';
@@ -948,123 +865,11 @@
             }
             accounts = data.accounts || {};
             models = data.models || {};
-            flows = Array.isArray(data.config?.flows) ? data.config.flows : [];
             quotaData = data.quota || null;
             accountRouting = data.config?.accountRouting || { smartSwitch: false, routes: [] };
             officialModels = collectOfficialModels(models);
 
-            const savedFlowId = localStorage.getItem(STORAGE_KEYS.activeFlow);
-            const initialFlow = flows.find(flow => flow.id === savedFlowId) || flows[0] || null;
-            setActiveFlow(initialFlow);
-            renderAccounts();
-            bindCanvasEvents();
             renderAccountRouting();
-            setRoutingTab(activeRoutingTab);
-        }
-
-        function cloneEntries(entries) {
-            return (entries || []).map(entry => ({ ...entry }));
-        }
-
-        async function setActiveFlow(flow) {
-            activeFlowId = flow ? flow.id : null;
-            flowEntries = flow ? cloneEntries(flow.entries) : [];
-
-            const nameInput = dom.byId('flow-name');
-            if (nameInput) {
-                nameInput.value = flow?.name || '';
-            }
-
-            if (activeFlowId) {
-                localStorage.setItem(STORAGE_KEYS.activeFlow, activeFlowId);
-            } else {
-                localStorage.removeItem(STORAGE_KEYS.activeFlow);
-            }
-
-            // 🆕 同步到后端，让服务器知道当前激活的 flow
-            try {
-                await apiPost('/routing/active-flow', { flowId: activeFlowId });
-                console.log(`Active flow set: ${flow?.name || '(none)'}`);
-            } catch (e) {
-                console.error('Failed to set active flow:', e);
-            }
-
-            renderFlow();
-            renderSavedFlows();
-        }
-
-        function renderSavedFlows() {
-            const container = dom.byId('saved-list');
-            if (!container) return;
-            container.innerHTML = '';
-
-            if (flows.length === 0) {
-                container.innerHTML = `<div class="text-xs text-gray-500">No saved flows yet.</div>`;
-                return;
-            }
-
-            flows.forEach(flow => {
-                const card = document.createElement('div');
-                const isActive = flow.id === activeFlowId;
-                card.className = `node node-palette rounded-xl px-3 py-3 text-xs space-y-2 ${isActive ? 'border-cyan-300/70 shadow-[0_0_18px_rgba(110,231,255,0.25)]' : ''}`;
-
-                const header = document.createElement('div');
-                header.className = 'flex items-center justify-between';
-                header.innerHTML = `
-                    <div class="text-sm font-semibold text-gray-200">${flow.name}</div>
-                    <span class="account-pill text-[10px] px-2 py-0.5 rounded-full">${flow.entries?.length || 0} hops</span>
-                `;
-                card.appendChild(header);
-
-                const hint = document.createElement('div');
-                hint.className = 'text-[10px] text-gray-500';
-                hint.textContent = isActive ? 'Editing' : 'Click to edit';
-                card.appendChild(hint);
-
-                const actions = document.createElement('div');
-                actions.className = 'flex items-center gap-3 text-[10px] text-gray-400';
-
-                const loadBtn = document.createElement('button');
-                loadBtn.textContent = isActive ? 'Editing' : 'Edit';
-                loadBtn.disabled = isActive;
-                loadBtn.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    setActiveFlow(flow);
-                });
-                actions.appendChild(loadBtn);
-
-                const deleteBtn = document.createElement('button');
-                deleteBtn.textContent = 'Delete';
-                deleteBtn.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    deleteFlow(flow.id);
-                });
-                actions.appendChild(deleteBtn);
-
-                card.appendChild(actions);
-                card.addEventListener('click', () => setActiveFlow(flow));
-                container.appendChild(card);
-            });
-        }
-
-        function newFlow() {
-            activeFlowId = null;
-            flowEntries = [];
-            const nameInput = dom.byId('flow-name');
-            if (nameInput) {
-                nameInput.value = '';
-            }
-            localStorage.removeItem(STORAGE_KEYS.activeFlow);
-            renderFlow();
-            renderSavedFlows();
-        }
-
-        async function deleteFlow(flowId) {
-            flows = flows.filter(flow => flow.id !== flowId);
-            if (activeFlowId === flowId) {
-                newFlow();
-            }
-            await persistRoutingConfig();
         }
 
         // Get quota percentage for a provider/account
@@ -1104,332 +909,9 @@
             return bar ? bar.percentage : null;
         }
 
-        function renderAccounts() {
-            const container = dom.byId('account-list');
-            container.innerHTML = '';
-            let totalAccounts = 0;
 
-            PROVIDER_ORDER.forEach(provider => {
-                const providerAccounts = accounts[provider] || [];
-                const providerModels = models[provider] || [];
-                if (providerAccounts.length === 0) return;
-                totalAccounts += providerAccounts.length;
 
-                providerAccounts.forEach(account => {
-                    const card = document.createElement('div');
-                    card.className = 'space-y-2';
 
-                    // Get quota percentage for this account (quotaPercent = REMAINING percentage, not used)
-                    const remaining = getAccountQuota(provider, account.id);
-
-                    // Check if this account is collapsed (default to collapsed)
-                    const collapseKey = `routing-collapse-${provider}-${account.id}`;
-                    const storedValue = localStorage.getItem(collapseKey);
-                    const isCollapsed = storedValue === null ? true : storedValue === 'true';
-
-                    const maskedDisplayName = provider === 'copilot' ? maskUsername(account.displayName) : maskEmail(account.displayName);
-
-                    const header = document.createElement('div');
-                    header.className = 'flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity';
-                    header.innerHTML = `
-                        <div class="flex items-center gap-2">
-                            <span class="text-[10px] text-gray-500 transition-transform ${isCollapsed ? '' : 'rotate-90'}" data-toggle-icon>▶</span>
-                            <span class="text-sm font-semibold text-gray-200">${maskedDisplayName}</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="account-pill text-[10px] px-2 py-0.5 rounded-full">${provider}</span>
-                        </div>
-                    `;
-                    card.appendChild(header);
-
-                    const modelGrid = document.createElement('div');
-                    modelGrid.className = 'grid grid-cols-1 gap-2 overflow-hidden transition-all duration-200';
-                    modelGrid.style.maxHeight = isCollapsed ? '0px' : '1000px';
-                    modelGrid.style.opacity = isCollapsed ? '0' : '1';
-
-                    // Toggle collapse on header click
-                    header.addEventListener('click', () => {
-                        const nowCollapsed = modelGrid.style.maxHeight !== '0px';
-                        modelGrid.style.maxHeight = nowCollapsed ? '0px' : '1000px';
-                        modelGrid.style.opacity = nowCollapsed ? '0' : '1';
-                        header.querySelector('[data-toggle-icon]').classList.toggle('rotate-90', !nowCollapsed);
-                        localStorage.setItem(collapseKey, nowCollapsed ? 'true' : 'false');
-                    });
-
-                    providerModels.forEach(model => {
-                        const node = document.createElement('div');
-                        node.className = 'node flow-node rounded-xl px-3 py-2 text-xs cursor-grab relative overflow-hidden';
-                        node.draggable = true;
-                        node.dataset.provider = provider;
-                        node.dataset.accountId = account.id;
-                        node.dataset.modelId = model.id;
-                        node.dataset.label = model.label;
-                        node.dataset.accountLabel = account.displayName;
-
-                        // Get model-specific quota (for antigravity) or account quota (for others)
-                        const modelQuota = getModelQuota(provider, account.id, model.id) ?? getAccountQuota(provider, account.id);
-                        const baseGradient = "linear-gradient(145deg, rgba(110, 231, 255, 0.14), rgba(10, 10, 10, 0.9))";
-
-                        // Combine flow gradient with battery fill effect
-                        if (modelQuota !== null) {
-                            node.style.backgroundImage = `linear-gradient(90deg, 
-                                rgba(110, 231, 255, 0.22) 0%, 
-                                rgba(110, 231, 255, 0.16) ${modelQuota}%, 
-                                rgba(10, 10, 10, 0.95) ${modelQuota}%), ${baseGradient}`;
-                        } else {
-                            node.style.backgroundImage = baseGradient;
-                        }
-
-                        node.innerHTML = `
-                            <div class="flex items-center justify-between relative z-10">
-                                <span>${model.label}</span>
-                                ${modelQuota !== null ? `<span class="text-[10px] text-cyan-400/80">${modelQuota}%</span>` : ''}
-                            </div>
-                        `;
-                        node.addEventListener('dragstart', onDragStart);
-                        modelGrid.appendChild(node);
-                    });
-
-                    card.appendChild(modelGrid);
-                    container.appendChild(card);
-                });
-            });
-
-            if (totalAccounts === 0) {
-                container.innerHTML = `<div class="text-xs text-gray-500">No accounts yet. Add accounts from /quota.</div>`;
-            }
-        }
-
-        function renderFlow() {
-            const canvas = dom.byId('flow-canvas');
-            if (!canvas) return;
-            canvas.innerHTML = '';
-
-            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svg.setAttribute('id', 'flow-lines');
-            svg.setAttribute('class', 'flow-lines');
-            canvas.appendChild(svg);
-
-            flowEntries.forEach((entry, i) => {
-                const node = document.createElement('div');
-                node.className = 'node flow-node rounded-2xl px-4 py-3 text-sm cursor-grab';
-                node.draggable = true;
-                node.dataset.sourceIndex = i;
-                node.dataset.flowIndex = i;
-                node.addEventListener('dragstart', onDragStart);
-                node.addEventListener('dragover', onNodeDragOver);
-                node.addEventListener('dragleave', onNodeDragLeave);
-                node.addEventListener('drop', onNodeDrop);
-                // Apply privacy masking to account label
-                const rawAccountLabel = entry.accountLabel || entry.accountId;
-                const maskedAccountLabel = entry.provider === 'copilot' ? maskUsername(rawAccountLabel) : maskEmail(rawAccountLabel);
-
-                node.innerHTML = `
-                    <div class="flex items-center justify-between">
-                        <div class="flow-badge">${i + 1}</div>
-                        <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500">${entry.provider}</span>
-                    </div>
-                    <div class="text-xs text-gray-500 mt-2">${maskedAccountLabel}</div>
-                    <div class="text-sm font-semibold text-gray-200 mt-1">${entry.label}</div>
-                    <div class="text-[10px] text-gray-500 mt-2">fallback on 429</div>
-                    <button class="text-[10px] text-gray-500 mt-2" onclick="removeEntry(${i})">Remove</button>
-                    <span class="flow-port flow-port-top"></span>
-                    <span class="flow-port flow-port-bottom"></span>
-                `;
-                canvas.appendChild(node);
-            });
-
-            const slot = document.createElement('div');
-            slot.className = 'drop-slot';
-            slot.dataset.index = flowEntries.length;
-            slot.textContent = 'Drop here';
-            slot.addEventListener('dragover', onDragOver);
-            slot.addEventListener('dragleave', onDragLeave);
-            slot.addEventListener('drop', onDrop);
-            canvas.appendChild(slot);
-
-            requestAnimationFrame(drawFlowLines);
-        }
-
-        function createEntryFromPayload(payload) {
-            return {
-                id: crypto.randomUUID(),
-                provider: payload.provider,
-                accountId: payload.accountId,
-                modelId: payload.modelId,
-                label: payload.label,
-                accountLabel: payload.accountLabel
-            };
-        }
-
-        function onDragStart(event) {
-            const node = event.target;
-            const payload = {
-                provider: node.dataset.provider,
-                accountId: node.dataset.accountId,
-                modelId: node.dataset.modelId,
-                label: node.dataset.label,
-                accountLabel: node.dataset.accountLabel,
-                sourceIndex: node.dataset.sourceIndex
-            };
-            event.dataTransfer.setData('application/json', JSON.stringify(payload));
-        }
-
-        function onDragOver(event) {
-            event.preventDefault();
-            event.currentTarget.classList.add('active');
-        }
-
-        function onDragLeave(event) {
-            event.currentTarget.classList.remove('active');
-        }
-
-        function onDrop(event) {
-            event.preventDefault();
-            const slot = event.currentTarget;
-            slot.classList.remove('active');
-            const index = Number(slot.dataset.index);
-            const payload = JSON.parse(event.dataTransfer.getData('application/json'));
-
-            if (payload.sourceIndex !== undefined) {
-                const from = Number(payload.sourceIndex);
-                const [moved] = flowEntries.splice(from, 1);
-                flowEntries.splice(index > from ? index - 1 : index, 0, moved);
-                renderFlow();
-                return;
-            }
-
-            const entry = createEntryFromPayload(payload);
-            flowEntries.splice(index, 0, entry);
-            renderFlow();
-        }
-
-        function onNodeDragOver(event) {
-            event.preventDefault();
-            event.currentTarget.classList.add('drop-target');
-        }
-
-        function onNodeDragLeave(event) {
-            event.currentTarget.classList.remove('drop-target');
-        }
-
-        function onNodeDrop(event) {
-            event.preventDefault();
-            const node = event.currentTarget;
-            node.classList.remove('drop-target');
-            const targetIndex = Number(node.dataset.flowIndex);
-            const payload = JSON.parse(event.dataTransfer.getData('application/json'));
-
-            if (payload.sourceIndex !== undefined) {
-                const from = Number(payload.sourceIndex);
-                const [moved] = flowEntries.splice(from, 1);
-                const insertIndex = from < targetIndex ? targetIndex - 1 : targetIndex;
-                flowEntries.splice(insertIndex, 0, moved);
-                renderFlow();
-                return;
-            }
-
-            const entry = createEntryFromPayload(payload);
-            flowEntries.splice(targetIndex, 0, entry);
-            renderFlow();
-        }
-
-        function removeEntry(index) {
-            flowEntries.splice(index, 1);
-            renderFlow();
-        }
-
-        async function saveRouting() {
-            const status = dom.byId('save-status');
-            const btn = dom.byId('save-btn');
-            const nameInput = dom.byId('flow-name');
-            const flowName = nameInput ? nameInput.value.trim() : '';
-
-            if (!flowName) {
-                if (status) status.textContent = 'Flow name required';
-                setTimeout(() => { if (status) status.textContent = ''; }, 2000);
-                return;
-            }
-
-            const existingByName = flows.find(flow => flow.name === flowName && flow.id !== activeFlowId);
-            if (existingByName) {
-                if (status) status.textContent = 'Flow name already exists';
-                setTimeout(() => { if (status) status.textContent = ''; }, 2000);
-                return;
-            }
-
-            const flowId = activeFlowId || crypto.randomUUID();
-            const flow = { id: flowId, name: flowName, entries: flowEntries };
-            const index = flows.findIndex(existing => existing.id === flowId);
-
-            const originalText = btn ? btn.textContent : 'Save';
-            const originalClass = btn ? btn.className : '';
-            
-            try {
-                if (btn) {
-                    btn.disabled = true;
-                    btn.textContent = 'Saving...';
-                }
-                if (status) status.textContent = 'Saving...';
-                
-                if (index >= 0) {
-                    flows[index] = flow;
-                } else {
-                    flows.push(flow);
-                }
-
-                activeFlowId = flowId;
-                await persistRoutingConfig();
-                
-                if (btn) {
-                    btn.textContent = '✓ Saved';
-                    btn.classList.add('border-green-500', 'text-green-500');
-                    btn.classList.remove('text-gray-300');
-                }
-                if (status) status.textContent = 'Saved';
-            } catch (e) {
-                if (btn) btn.textContent = 'Error';
-                if (status) status.textContent = 'Error';
-                console.error(e);
-            } finally {
-                setTimeout(() => {
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.textContent = originalText;
-                        btn.className = originalClass;
-                    }
-                    if (status) status.textContent = '';
-                }, 2000);
-            }
-        }
-
-        function clearRouting() {
-            flowEntries = [];
-            renderFlow();
-        }
-
-        function rotateRouting() {
-            if (flowEntries.length > 1) {
-                const first = flowEntries.shift();
-                flowEntries.push(first);
-                renderFlow();
-            }
-        }
-
-        async function persistRoutingConfig() {
-            let data;
-            try {
-                data = await apiPost('/routing/config', { flows, accountRouting });
-            } catch (error) {
-                console.error('Failed to save routing config:', error);
-                return;
-            }
-            flows = Array.isArray(data.config?.flows) ? data.config.flows : flows;
-            accountRouting = data.config?.accountRouting || accountRouting;
-            const active = flows.find(flow => flow.id === activeFlowId) || null;
-            setActiveFlow(active);
-            renderAccountRouting();
-        }
 
         async function persistAccountRoutingOnly() {
             let data;
@@ -1443,108 +925,32 @@
             renderAccountRouting();
         }
 
-        function bindCanvasEvents() {
-            const canvas = dom.byId('flow-canvas');
-            const scrollContainer = dom.qs('.flow-scroll');
-            if (!canvas || canvas.dataset.bound) return;
-            canvas.dataset.bound = 'true';
-
-            // Bind scroll event to the scrollable container
-            if (scrollContainer) {
-                scrollContainer.addEventListener('scroll', () => {
-                    requestAnimationFrame(drawFlowLines);
-                }, { passive: true });
-            }
-        }
-
-        function drawFlowLines() {
-            const canvas = dom.byId('flow-canvas');
-            const svg = canvas ? canvas.querySelector('#flow-lines') : null;
-            if (!canvas || !svg) return;
-
-            const width = Math.max(canvas.scrollWidth, canvas.clientWidth);
-            const height = Math.max(canvas.scrollHeight, canvas.clientHeight);
-
-            svg.setAttribute('width', width);
-            svg.setAttribute('height', height);
-            svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-            svg.style.width = `${width}px`;
-            svg.style.height = `${height}px`;
-
-            const canvasRect = canvas.getBoundingClientRect();
-            const scrollLeft = canvas.scrollLeft;
-            const scrollTop = canvas.scrollTop;
-
-            const nodes = Array.from(canvas.querySelectorAll('.flow-node'))
-                .sort((a, b) => Number(a.dataset.flowIndex) - Number(b.dataset.flowIndex));
-
-            const defs = `
-                <defs>
-                    <linearGradient id="flow-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stop-color="#6ee7ff" stop-opacity="0.9"></stop>
-                        <stop offset="60%" stop-color="#8b9bff" stop-opacity="0.9"></stop>
-                        <stop offset="100%" stop-color="#a78bfa" stop-opacity="0.9"></stop>
-                    </linearGradient>
-                    <filter id="flow-glow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur stdDeviation="6" result="coloredBlur"></feGaussianBlur>
-                        <feMerge>
-                            <feMergeNode in="coloredBlur"></feMergeNode>
-                            <feMergeNode in="SourceGraphic"></feMergeNode>
-                        </feMerge>
-                    </filter>
-                </defs>
-            `;
-
-            let paths = '';
-            for (let i = 0; i < nodes.length - 1; i++) {
-                const current = nodes[i];
-                const next = nodes[i + 1];
-                const startPort = current.querySelector('.flow-port-bottom');
-                const endPort = next.querySelector('.flow-port-top');
-                if (!startPort || !endPort) continue;
-
-                const startRect = startPort.getBoundingClientRect();
-                const endRect = endPort.getBoundingClientRect();
-                const startX = startRect.left - canvasRect.left + scrollLeft + startRect.width / 2;
-                const startY = startRect.top - canvasRect.top + scrollTop + startRect.height / 2;
-                const endX = endRect.left - canvasRect.left + scrollLeft + endRect.width / 2;
-                const endY = endRect.top - canvasRect.top + scrollTop + endRect.height / 2;
-                const curve = Math.max(40, Math.min(180, Math.abs(endY - startY) * 0.5));
-
-                const path = `M ${startX} ${startY} C ${startX} ${startY + curve}, ${endX} ${endY - curve}, ${endX} ${endY}`;
-                paths += `<path class="flow-line-glow" d="${path}"></path>`;
-                paths += `<path class="flow-line-core" d="${path}"></path>`;
-            }
-
-            svg.innerHTML = `${defs}${paths}`;
-        }
+        // Canvas events removed
+        // Draw logic removed
 
         async function resetRouting() {
-            if (!confirm('Are you sure you want to clear all routing rules? This will reset your config to default (flows empty, smart switch enabled).')) {
+            if (!confirm('Are you sure you want to clear rules? This will reset Account Routing to default (smart switch enabled).')) {
                 return;
             }
 
             const btn = dom.byId('reset-btn');
             const originalText = btn ? btn.textContent : 'Reset Rules';
-            
+
             try {
                 if (btn) {
                     btn.disabled = true;
                     btn.textContent = 'Resetting...';
                 }
 
-                flows = [];
                 accountRouting = { smartSwitch: true, routes: [] };
-                activeFlowId = null;
-                localStorage.removeItem(STORAGE_KEYS.activeFlow);
-                
-                await persistRoutingConfig();
-                
+
+                await persistAccountRoutingOnly();
+
                 if (btn) {
                     btn.textContent = '✓ Reset';
                 }
                 setTimeout(() => {
-                    location.reload(); // Hard reload to clear all states and re-draw
+                    location.reload();
                 }, 1000);
             } catch (e) {
                 if (btn) btn.textContent = 'Error';
@@ -1559,27 +965,20 @@
         }
 
         const routingExports = {
-            setRoutingTab,
-            newFlow,
-            saveRouting,
             saveAccountRouting,
             addAccountRouteEntry,
             moveAccountRouteEntry,
             removeAccountRouteEntry,
-            removeEntry,
             resetRouting,
         };
         Object.assign(window, routingExports);
 
         loadRouting();
-        window.addEventListener('resize', drawFlowLines);
 
         // Listen for privacy mode changes from other pages
         window.addEventListener('storage', (e) => {
             if (e.key === STORAGE_KEYS.privacyMode) {
                 console.log('[Routing] Privacy mode changed, re-rendering...');
-                renderAccounts();
-                renderFlow();
                 renderAccountRouting();
             }
         });

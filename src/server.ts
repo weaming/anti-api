@@ -173,6 +173,17 @@ server.get("/quota", async (c) => {
     }
 })
 
+// 接入指南 - HTML
+server.get("/connect", async (c) => {
+    try {
+        const htmlPath = join(import.meta.dir, "../public/connect.html")
+        const html = readFileSync(htmlPath, "utf-8")
+        return c.html(html)
+    } catch (error) {
+        return c.text("Connect guide not found", 404)
+    }
+})
+
 // 配额数据 - JSON API
 server.get("/quota/json", async (c) => {
     try {

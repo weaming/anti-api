@@ -340,6 +340,10 @@
                 class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200">
                 Routing <span class="text-[10px] text-gray-500">(Beta)</span>
             </button>
+            <button onclick="switchTab('connect')" id="tab-connect"
+                class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200">
+                Connect
+            </button>
             <button onclick="switchTab('logs')" id="tab-logs"
                 class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200">
                 Logs
@@ -464,6 +468,12 @@
         <!-- ==================== ROUTING TAB ==================== -->
         <div id="tab-content-routing" class="tab-content hidden">
             <iframe id="routing-iframe" class="w-full border-0 bg-black"
+                style="height: calc(100vh - 160px); min-height: 500px;"></iframe>
+        </div>
+
+        <!-- ==================== CONNECT TAB ==================== -->
+        <div id="tab-content-connect" class="tab-content hidden">
+            <iframe id="connect-iframe" class="w-full border-0 bg-black"
                 style="height: calc(100vh - 160px); min-height: 500px;"></iframe>
         </div>
 
@@ -728,10 +738,12 @@
         let currentTab = 'quota';
         let remoteLoaded = false;
         let routingLoaded = false;
+        let connectLoaded = false;
         let logsLoaded = false;
         let logsSource = null;
         let logsPaused = false;
         let logsFollow = true;
+
         let lastLogId = 0;
         const maxLogLines = 1000;
         let lastRefreshTime = null;
@@ -805,6 +817,97 @@
                 showSettingsToast('Failed to save settings', true);
             }
         }
+
+        // Tab switching function
+        let lastRoutingPrivacyMode = null; // Track privacy mode when routing was last loaded
+
+        function switchTab(tabName) {
+            currentTab = tabName;
+
+            // Update tab button styles
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('text-white', 'bg-gradient-to-r', 'from-cyan-500/30', 'to-blue-500/30', 'border', 'border-cyan-500/50');
+                btn.classList.add('text-gray-400');
+            });
+
+            const activeTab = document.getElementById(`tab-${tabName}`);
+            if (activeTab) {
+                activeTab.classList.remove('text-gray-400');
+                activeTab.classList.add('text-white', 'bg-gradient-to-r', 'from-cyan-500/30', 'to-blue-500/30', 'border', 'border-cyan-500/50');
+            }
+
+            // Show/hide tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+
+            const activeContent = document.getElementById(`tab-content-${tabName}`);
+            if (activeContent) {
+                activeContent.classList.remove('hidden');
+            }
+
+            // Lazy load Remote content
+            if (tabName === 'remote' && !remoteLoaded) {
+                loadRemoteContent();
+            }
+
+            // Lazy load Routing content or reload if privacy changed
+            if (tabName === 'routing') {
+                const currentPrivacy = localStorage.getItem('anti-api-privacy-mode') || 'false';
+                if (!routingLoaded) {
+                    loadRoutingContent();
+                    lastRoutingPrivacyMode = currentPrivacy;
+                } else if (lastRoutingPrivacyMode !== currentPrivacy) {
+                    // Privacy mode changed, reload iframe
+                    const iframe = document.getElementById('routing-iframe');
+                    if (iframe) {
+                        iframe.contentWindow.location.reload();
+                    }
+                    lastRoutingPrivacyMode = currentPrivacy;
+                }
+            }
+
+            // Lazy load Connect content
+            if (tabName === 'connect' && !connectLoaded) {
+                loadConnectContent();
+            }
+
+            // Load Usage data when switching to usage tab
+            if (tabName === 'usage') {
+                fetchUsageData(false);
+            }
+
+            if (tabName === 'logs') {
+                initLogs();
+            } else {
+                stopLogStream();
+            }
+        }
+
+        function loadRemoteContent() {
+            const iframe = document.getElementById('remote-iframe');
+            if (iframe && !iframe.src.includes('/remote-panel')) {
+                iframe.src = '/remote-panel';
+            }
+            remoteLoaded = true;
+        }
+
+        function loadRoutingContent() {
+            const iframe = document.getElementById('routing-iframe');
+            if (iframe && !iframe.src.includes('/routing')) {
+                iframe.src = '/routing';
+            }
+            routingLoaded = true;
+        }
+
+        function loadConnectContent() {
+            const iframe = document.getElementById('connect-iframe');
+            if (iframe && !iframe.src.includes('/connect')) {
+                iframe.src = '/connect';
+            }
+            connectLoaded = true;
+        }
+
 
         async function resetSettings() {
             // Update UI to defaults
@@ -997,82 +1100,7 @@
         // Update relative time every minute
         setInterval(updateLastUpdatedDisplay, 60000);
 
-        // Tab switching function
-        let lastRoutingPrivacyMode = null; // Track privacy mode when routing was last loaded
 
-        function switchTab(tabName) {
-            currentTab = tabName;
-
-            // Update tab button styles
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('text-white', 'bg-gradient-to-r', 'from-cyan-500/30', 'to-blue-500/30', 'border', 'border-cyan-500/50');
-                btn.classList.add('text-gray-400');
-            });
-
-            const activeTab = document.getElementById(`tab-${tabName}`);
-            if (activeTab) {
-                activeTab.classList.remove('text-gray-400');
-                activeTab.classList.add('text-white', 'bg-gradient-to-r', 'from-cyan-500/30', 'to-blue-500/30', 'border', 'border-cyan-500/50');
-            }
-
-            // Show/hide tab content
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.add('hidden');
-            });
-
-            const activeContent = document.getElementById(`tab-content-${tabName}`);
-            if (activeContent) {
-                activeContent.classList.remove('hidden');
-            }
-
-            // Lazy load Remote content
-            if (tabName === 'remote' && !remoteLoaded) {
-                loadRemoteContent();
-            }
-
-            // Lazy load Routing content or reload if privacy changed
-            if (tabName === 'routing') {
-                const currentPrivacy = localStorage.getItem('anti-api-privacy-mode') || 'false';
-                if (!routingLoaded) {
-                    loadRoutingContent();
-                    lastRoutingPrivacyMode = currentPrivacy;
-                } else if (lastRoutingPrivacyMode !== currentPrivacy) {
-                    // Privacy mode changed, reload iframe
-                    const iframe = document.getElementById('routing-iframe');
-                    if (iframe) {
-                        iframe.contentWindow.location.reload();
-                    }
-                    lastRoutingPrivacyMode = currentPrivacy;
-                }
-            }
-
-            // Load Usage data when switching to usage tab
-            if (tabName === 'usage') {
-                fetchUsageData(false);
-            }
-
-            if (tabName === 'logs') {
-                initLogs();
-            } else {
-                stopLogStream();
-            }
-        }
-
-        function loadRemoteContent() {
-            const iframe = document.getElementById('remote-iframe');
-            if (iframe && !iframe.src.includes('/remote-panel')) {
-                iframe.src = '/remote-panel';
-            }
-            remoteLoaded = true;
-        }
-
-        function loadRoutingContent() {
-            const iframe = document.getElementById('routing-iframe');
-            if (iframe && !iframe.src.includes('/routing')) {
-                iframe.src = '/routing';
-            }
-            routingLoaded = true;
-        }
 
         function setLogsStatus(message, isError = false) {
             const status = document.getElementById('logs-status');
