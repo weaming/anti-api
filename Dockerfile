@@ -21,11 +21,12 @@ ENV NODE_ENV=production
 COPY package.json bun.lock ./
 RUN bun install --production --frozen-lockfile
 
-# 2. Copy the pre-built bundle from the host (run 'bun run build' on host first)
-COPY dist ./dist
+# 2. Build the application
+COPY tsconfig.json ./
+COPY src ./src
+RUN bun run build
+
 COPY public ./public
-COPY src/main.ts ./src/main.ts 
-# ^ Keep main.ts if needed for certain bun commands, though dist/main.js is the entry
 
 
 ENV HOME=/app/data
