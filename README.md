@@ -1,10 +1,7 @@
 # Anti-API
 
-<p align="center">
-  <strong>快速、好用的本地 API 代理服务！将 Antigravity 的顶级 AI 模型转换为 OpenAI/Anthropic 兼容的 API</strong>
-</p>
+快速、好用的本地 API 代理服务！将 Antigravity 的顶级 AI 模型转换为 OpenAI/Anthropic 兼容的 API。
 
----
 
 ## ✨ 特性
 
@@ -82,14 +79,6 @@ docker compose up -d
 ### 远程访问
 
 访问 `http://localhost:8964/remote-panel`，配置 ngrok token 后即可一键开启公网访问。
-
-### 路由系统
-
-路由分为 **Flow 路由** (自定义 ID) 和 **Account 路由** (官方 ID)。
-在 `http://localhost:8964/routing` 配置：
-
-1. **混合使用**: 可以将 deepseekflow 指向多个账号
-2. **账号链**: 为官方模型 ID 设置多个备用账号，自动故障转移
 
 ## 📝 开发
 
