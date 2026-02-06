@@ -348,6 +348,14 @@ class AccountManager {
     }
 
     /**
+     * List all account IDs
+     */
+    listAccounts(): string[] {
+        this.ensureLoaded()
+        return Array.from(this.accounts.keys())
+    }
+
+    /**
      * 🆕 账号是否正在处理请求
      */
     isAccountInFlight(accountId: string): boolean {
@@ -581,24 +589,24 @@ class AccountManager {
                 if (hasIdleAccount && this.inFlightAccounts.has(firstId)) {
                     // Prefer idle accounts when available
                 } else {
-                // 刷新 token 如果需要
-                if (firstAccount.expiresAt > 0 && now > firstAccount.expiresAt - 5 * 60 * 1000) {
-                    try {
-                        const tokens = await refreshAccessToken(firstAccount.refreshToken)
-                        firstAccount.accessToken = tokens.accessToken
-                        firstAccount.expiresAt = now + tokens.expiresIn * 1000
-                        this.save()
-                    } catch (e) {
-                        consola.warn(`Failed to refresh token for ${firstAccount.email}:`, e)
+                    // 刷新 token 如果需要
+                    if (firstAccount.expiresAt > 0 && now > firstAccount.expiresAt - 5 * 60 * 1000) {
+                        try {
+                            const tokens = await refreshAccessToken(firstAccount.refreshToken)
+                            firstAccount.accessToken = tokens.accessToken
+                            firstAccount.expiresAt = now + tokens.expiresIn * 1000
+                            this.save()
+                        } catch (e) {
+                            consola.warn(`Failed to refresh token for ${firstAccount.email}:`, e)
+                        }
                     }
-                }
-                this.lastUsedAccount = { accountId: firstAccount.id, timestamp: now }
-                return {
-                    accessToken: firstAccount.accessToken,
-                    projectId: await this.ensureProjectId(firstAccount),
-                    email: firstAccount.email,
-                    accountId: firstAccount.id,
-                }
+                    this.lastUsedAccount = { accountId: firstAccount.id, timestamp: now }
+                    return {
+                        accessToken: firstAccount.accessToken,
+                        projectId: await this.ensureProjectId(firstAccount),
+                        email: firstAccount.email,
+                        accountId: firstAccount.id,
+                    }
                 }
             }
         }

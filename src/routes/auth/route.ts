@@ -7,8 +7,6 @@ import { isAuthenticated, getUserInfo, setAuth, clearAuth, startOAuthLogin, poll
 import { accountManager } from "~/services/antigravity/account-manager"
 import { state } from "~/lib/state"
 import { authStore } from "~/services/auth/store"
-import { debugCodexOAuth, importCodexAuthSources, startCodexCliLogin, getCodexCliLoginStatus } from "~/services/codex/oauth"
-import { startCopilotDeviceFlow, pollCopilotSession, importCopilotAuthFiles } from "~/services/copilot/oauth"
 
 export const authRouter = new Hono()
 
@@ -27,8 +25,6 @@ authRouter.get("/accounts", (c) => {
     return c.json({
         accounts: {
             antigravity: authStore.listSummaries("antigravity"),
-            codex: authStore.listSummaries("codex"),
-            copilot: authStore.listSummaries("copilot"),
         },
     })
 })
@@ -48,75 +44,9 @@ authRouter.post("/login", async (c) => {
         }
 
         const provider = (body.provider || "antigravity").toLowerCase()
-        const forceInteractive = body.force === true
 
-        if (provider === "copilot") {
-            if (!forceInteractive) {
-                const imported = importCopilotAuthFiles()
-                if (imported.length > 0) {
-                    return c.json({
-                        success: true,
-                        status: "success",
-                        provider: "copilot",
-                        source: "import",
-                        login: imported[0].login,
-                    })
-                }
-            }
-            const session = await startCopilotDeviceFlow()
-            return c.json({
-                success: true,
-                status: "pending",
-                provider: "copilot",
-                device_code: session.deviceCode,
-                user_code: session.userCode,
-                verification_uri: session.verificationUri,
-                interval: session.interval,
-            })
-        }
-
-        if (provider === "codex") {
-            if (forceInteractive) {
-                // 使用浏览器 OAuth 登录获取完整权限的 token
-                try {
-                    const { startCodexOAuthLogin } = await import("~/services/codex/oauth")
-                    const account = await startCodexOAuthLogin()
-                    return c.json({
-                        success: true,
-                        provider: "codex",
-                        status: "success",
-                        source: "browser-oauth",
-                        account: {
-                            id: account.id,
-                            email: account.email,
-                            source: account.authSource,
-                        },
-                    })
-                } catch (error) {
-                    return c.json({ success: false, error: (error as Error).message }, 400)
-                }
-            }
-
-            const result = await importCodexAuthSources()
-            if (result.accounts.length > 0) {
-                return c.json({
-                    success: true,
-                    provider: "codex",
-                    status: "success",
-                    source: "import",
-                    count: result.accounts.length,
-                    sources: result.sources,
-                    accounts: result.accounts.map(account => ({
-                        id: account.id,
-                        email: account.email,
-                        source: account.authSource,
-                    })),
-                })
-            }
-            return c.json({
-                success: false,
-                error: "Codex auth files not found. Use force=true to login via browser.",
-            }, 400)
+        if (provider !== "antigravity") {
+            return c.json({ success: false, error: "Only Antigravity provider is supported" }, 400)
         }
 
         // 默认 Antigravity
@@ -168,53 +98,6 @@ authRouter.get("/antigravity/status", async (c) => {
         success: result.status === "success",
         ...result,
     })
-})
-
-authRouter.get("/copilot/status", async (c) => {
-    const deviceCode = c.req.query("device_code")
-    if (!deviceCode) {
-        return c.json({ success: false, error: "device_code required" }, 400)
-    }
-    const session = await pollCopilotSession(deviceCode)
-    return c.json({
-        success: session.status !== "error",
-        status: session.status,
-        message: session.message,
-        account: session.account ? {
-            id: session.account.id,
-            login: session.account.login,
-            email: session.account.email,
-        } : undefined,
-    })
-})
-
-authRouter.get("/codex/status", async (c) => {
-    const sessionId = c.req.query("session_id")
-    if (!sessionId) {
-        return c.json({ success: false, error: "session_id required" }, 400)
-    }
-    const result = await getCodexCliLoginStatus(sessionId)
-    return c.json({
-        success: result.status !== "error",
-        status: result.status,
-        message: result.message,
-        verification_uri: result.verificationUri,
-        user_code: result.userCode,
-        accounts: result.accounts?.map(account => ({
-            id: account.id,
-            email: account.email,
-            source: account.authSource,
-        })),
-    })
-})
-
-authRouter.get("/codex/debug", async (c) => {
-    try {
-        const result = await debugCodexOAuth()
-        return c.json({ success: true, ...result })
-    } catch (error) {
-        return c.json({ success: false, error: (error as Error).message }, 500)
-    }
 })
 
 // 登出

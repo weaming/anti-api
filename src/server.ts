@@ -19,7 +19,6 @@ import { getAggregatedQuota } from "./services/quota-aggregator"
 import { initAuth, isAuthenticated } from "./services/antigravity/login"
 import { accountManager } from "./services/antigravity/account-manager"
 import { loadRoutingConfig } from "./services/routing/config"
-import { importCodexAuthSources } from "./services/codex/oauth"
 import { loadSettings, saveSettings } from "./services/settings"
 import { pingAccount } from "./services/ping"
 import { summarizeUpstreamError, UpstreamError } from "./lib/error"
@@ -44,12 +43,7 @@ server.use(async (c, next) => {
     if (status >= 400) {
         const ctx = getRequestLogContext()
         if (ctx.model && ctx.provider) {
-            const providerNames: Record<string, string> = {
-                copilot: "GitHub Copilot",
-                codex: "ChatGPT Codex",
-                antigravity: "Antigravity",
-            }
-            const providerName = providerNames[ctx.provider] || ctx.provider
+            const providerName = ctx.provider === "antigravity" ? "Antigravity" : ctx.provider
             const accountPart = ctx.account ? ` >> ${ctx.account}` : ""
             console.log(`${status}: from ${ctx.model} > ${providerName}${accountPart}`)
         } else {
@@ -61,17 +55,9 @@ server.use(async (c, next) => {
 server.use(cors())
 
 // 启动时自动加载已保存的认证
-initAuth()
-accountManager.load()
-
-// 自动导入 Codex 账户 (从 ~/.codex/auth.json 和 ~/.cli-proxy-api/)
-importCodexAuthSources().then(result => {
-    if (result.accounts.length > 0) {
-        consola.success(`Codex: Imported ${result.accounts.length} account(s) from ${result.sources.join(", ")}`)
-    }
-}).catch(err => {
-    void err
-})
+// 启动时 - 认证加载移至入口文件 (main.ts)
+// initAuth()
+// accountManager.load()
 
 // 根路径 - 重定向到配额面板
 server.get("/", (c) => c.redirect("/quota"))
@@ -150,18 +136,9 @@ server.route("/messages", messageRoutes)
 // 模型列表处理函数 - 兼容 OpenAI 和 Anthropic 格式
 const modelsHandler = (c: any) => {
     const now = new Date().toISOString()
-    const routingConfig = loadRoutingConfig()
-    const routeModels = (routingConfig.flows || []).map(flow => ({
-        id: flow.name,
-        name: `Route: ${flow.name}`,
-        owned_by: "routing",
-    }))
-    const seen = new Set<string>()
-    const models = [...AVAILABLE_MODELS, ...routeModels].filter(model => {
-        if (seen.has(model.id)) return false
-        seen.add(model.id)
-        return true
-    })
+
+    // 仅列出配置好的 Antigravity 模型
+    const models: Array<{ id: string; name?: string; owned_by?: string }> = AVAILABLE_MODELS
 
     return c.json({
         object: "list",
@@ -171,8 +148,8 @@ const modelsHandler = (c: any) => {
             object: "model",         // OpenAI format
             created_at: now,         // Anthropic format (RFC 3339)
             created: Date.now(),     // OpenAI format (unix timestamp)
-            owned_by: "owned_by" in m ? (m.owned_by as string) : "antigravity",
-            display_name: "name" in m ? (m.name as string) : m.id,
+            owned_by: m.owned_by || "antigravity",
+            display_name: m.name || m.id,
         })),
         has_more: false,
         first_id: models[0]?.id,
@@ -222,7 +199,7 @@ server.post("/accounts/ping", async (c) => {
     if (!provider || !accountId) {
         return c.json({ success: false, error: "provider and accountId are required" }, 400)
     }
-    if (!["antigravity", "codex", "copilot"].includes(provider)) {
+    if (provider !== "antigravity") {
         return c.json({ success: false, error: "Unsupported provider" }, 400)
     }
 
@@ -268,12 +245,8 @@ server.delete("/accounts/:id", async (c) => {
     // 如果 accountManager 找不到，尝试直接从 authStore 删除
     // 这覆盖了 token 过期或通过其他方式添加的账号
     if (!success) {
-        // 尝试所有 provider 类型
-        for (const provider of ["antigravity", "codex", "copilot"] as const) {
-            if (authStore.deleteAccount(provider, accountId)) {
-                success = true
-                break
-            }
+        if (authStore.deleteAccount("antigravity", accountId)) {
+            success = true
         }
     }
 
@@ -282,32 +255,28 @@ server.delete("/accounts/:id", async (c) => {
         try {
             const { loadRoutingConfig, saveRoutingConfig } = require("./services/routing/config")
             const config = loadRoutingConfig()
-            let removedCount = 0
-            const cleanedFlows = config.flows.map((flow: any) => ({
-                ...flow,
-                entries: flow.entries.filter((entry: any) => {
-                    if (entry.accountId === accountId) {
-                        removedCount++
-                        return false
-                    }
-                    return true
-                })
-            }))
-            const cleanedAccountRouting = config.accountRouting ? {
-                ...config.accountRouting,
-                routes: config.accountRouting.routes.map((route: any) => ({
-                    ...route,
-                    entries: route.entries.filter((entry: any) => {
-                        if (entry.accountId === accountId) {
-                            removedCount++
-                            return false
-                        }
-                        return true
-                    })
-                }))
-            } : config.accountRouting
-            if (removedCount > 0) {
-                saveRoutingConfig(cleanedFlows, undefined, cleanedAccountRouting)
+
+            // 清理 Account Routing
+            if (config.accountRouting) {
+                let removedCount = 0
+                const cleanedAccountRouting = {
+                    ...config.accountRouting,
+                    routes: config.accountRouting.routes.map((route: any) => ({
+                        ...route,
+                        entries: route.entries.filter((entry: any) => {
+                            if (entry.accountId === accountId) {
+                                removedCount++
+                                return false
+                            }
+                            return true
+                        })
+                    }))
+                }
+
+                if (removedCount > 0) {
+                    // 只更新 accountRouting
+                    saveRoutingConfig(cleanedAccountRouting)
+                }
             }
         } catch (e) {
             console.error("Failed to cleanup routing config:", e)

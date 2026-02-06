@@ -44,14 +44,11 @@ function accountKey(provider: AuthProvider, id: string): string {
 }
 
 function providerToStoredType(provider: AuthProvider): string {
-    if (provider === "copilot") return "github-copilot"
     return provider
 }
 
 function storedTypeToProvider(type: string): AuthProvider | null {
-    if (type === "github-copilot" || type === "copilot") return "copilot"
     if (type === "antigravity") return "antigravity"
-    if (type === "codex") return "codex"
     return null
 }
 

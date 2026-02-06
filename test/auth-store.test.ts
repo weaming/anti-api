@@ -1,65 +1,61 @@
-import { test, expect } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
-import { tmpdir } from "os"
+import { test, expect, mock, describe, beforeEach, afterEach } from "bun:test"
 import { join } from "path"
+import { existsSync, mkdirSync, writeFileSync, unlinkSync, readdirSync, readFileSync } from "fs"
 
-function withTempHome(): { dir: string; prevHome: string | undefined; prevProfile: string | undefined } {
-    const dir = mkdtempSync(join(tmpdir(), "anti-api-test-"))
-    const prevHome = process.env.HOME
-    const prevProfile = process.env.USERPROFILE
-    process.env.HOME = dir
-    process.env.USERPROFILE = dir
-    return { dir, prevHome, prevProfile }
-}
+// Mock dependencies
+const TEST_DATA_DIR = join(process.cwd(), ".test-data-auth-store-" + Date.now())
+const TEST_AUTH_DIR = join(TEST_DATA_DIR, "auth")
 
-function restoreEnv(prevHome: string | undefined, prevProfile: string | undefined) {
-    if (prevHome === undefined) {
-        delete process.env.HOME
-    } else {
-        process.env.HOME = prevHome
+mock.module("~/lib/data-dir", () => ({
+    getDataDir: () => TEST_DATA_DIR,
+    ensureDataDir: () => {
+        if (!existsSync(TEST_DATA_DIR)) {
+            mkdirSync(TEST_DATA_DIR, { recursive: true })
+        }
+        return TEST_DATA_DIR
     }
-    if (prevProfile === undefined) {
-        delete process.env.USERPROFILE
-    } else {
-        process.env.USERPROFILE = prevProfile
-    }
-}
+}))
 
-test("authStore saves and lists accounts", async () => {
-    const { dir, prevHome, prevProfile } = withTempHome()
-    const { authStore } = await import(`../src/services/auth/store.ts?${Date.now()}`)
+describe("authStore", async () => {
+    // Dynamically import to ensure mocks apply
+    const { authStore } = await import("~/services/auth/store")
 
-    authStore.saveAccount({
-        id: "acc-1",
-        provider: "antigravity",
-        email: "user@example.com",
-        accessToken: "token",
-        refreshToken: "refresh",
-        expiresAt: Date.now() + 60_000,
+    beforeEach(() => {
+        if (existsSync(TEST_DATA_DIR)) {
+            rmSync(TEST_DATA_DIR, { recursive: true, force: true })
+        }
+        mkdirSync(TEST_AUTH_DIR, { recursive: true })
     })
 
-    const accounts = authStore.listAccounts("antigravity")
-    expect(accounts.length).toBe(1)
-    expect(accounts[0].email).toBe("user@example.com")
+    afterEach(() => {
+        if (existsSync(TEST_DATA_DIR)) {
+            rmSync(TEST_DATA_DIR, { recursive: true, force: true })
+        }
+    })
 
-    const summaries = authStore.listSummaries("antigravity")
-    expect(summaries[0].displayName).toBe("user@example.com")
+    test("saves and lists accounts", () => {
+        authStore.saveAccount({
+            id: "acc-1",
+            provider: "antigravity",
+            email: "test@example.com",
+            accessToken: "tok",
+            createdAt: new Date().toISOString()
+        })
 
-    rmSync(dir, { recursive: true, force: true })
-    restoreEnv(prevHome, prevProfile)
+        const accounts = authStore.listAccounts("antigravity")
+        expect(accounts.length).toBe(1)
+        expect(accounts[0].id).toBe("acc-1")
+    })
+
+    test("rate limit logic", () => {
+        const delay = authStore.markRateLimited("antigravity", "acc-2", 429, "msg", "5")
+        expect(delay).toBeGreaterThan(0)
+        expect(authStore.isRateLimited("antigravity", "acc-2")).toBe(true)
+
+        authStore.markSuccess("antigravity", "acc-2")
+        expect(authStore.isRateLimited("antigravity", "acc-2")).toBe(false)
+    })
 })
 
-test("authStore rate limit toggles state", async () => {
-    const { dir, prevHome, prevProfile } = withTempHome()
-    const { authStore } = await import(`../src/services/auth/store.ts?${Date.now()}`)
-
-    const delay = authStore.markRateLimited("antigravity", "acc-2", 429, "quota exhausted", "5")
-    expect(delay).toBeGreaterThan(0)
-    expect(authStore.isRateLimited("antigravity", "acc-2")).toBe(true)
-
-    authStore.markSuccess("antigravity", "acc-2")
-    expect(authStore.isRateLimited("antigravity", "acc-2")).toBe(false)
-
-    rmSync(dir, { recursive: true, force: true })
-    restoreEnv(prevHome, prevProfile)
-})
+import { rmSync } from "fs"
+import * as path from "path"

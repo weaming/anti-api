@@ -25,17 +25,12 @@ routingRouter.get("/config", async (c) => {
     accountManager.load()
     const config = loadRoutingConfig()
 
-    const listSummariesInOrder = (provider: "antigravity" | "codex" | "copilot"): ProviderAccountSummary[] => {
+    const listSummariesInOrder = (provider: "antigravity"): ProviderAccountSummary[] => {
         const accounts = authStore.listAccounts(provider)
         const sorted = accounts.sort((a, b) => {
             const aTime = a.createdAt || ""
             const bTime = b.createdAt || ""
-            if (aTime && bTime) {
-                return aTime.localeCompare(bTime)
-            }
-            if (aTime) return -1
-            if (bTime) return 1
-            return 0
+            return (aTime && bTime) ? aTime.localeCompare(bTime) : (aTime ? -1 : (bTime ? 1 : 0))
         })
         return sorted.map(acc => ({
             id: acc.id,
@@ -50,14 +45,10 @@ routingRouter.get("/config", async (c) => {
 
     const accounts = {
         antigravity: listSummariesInOrder("antigravity"),
-        codex: listSummariesInOrder("codex"),
-        copilot: listSummariesInOrder("copilot"),
     }
 
     const models = {
         antigravity: getProviderModels("antigravity"),
-        codex: getProviderModels("codex"),
-        copilot: getProviderModels("copilot"),
     }
 
     // Get quota data for displaying on model blocks
@@ -72,29 +63,7 @@ routingRouter.get("/config", async (c) => {
 })
 
 routingRouter.post("/config", async (c) => {
-    const body = await c.req.json<{ flows?: RoutingFlow[]; entries?: RoutingEntry[]; accountRouting?: AccountRoutingConfig }>()
-    let flows: RoutingFlow[] = []
-
-    if (Array.isArray(body.flows)) {
-        flows = body.flows
-    } else if (Array.isArray(body.entries)) {
-        flows = [{ id: randomUUID(), name: "default", entries: body.entries }]
-    } else {
-        const existing = loadRoutingConfig()
-        flows = existing.flows
-    }
-
-    const normalized = flows.map((flow, index) => ({
-        id: flow.id || randomUUID(),
-        name: (flow.name || `Flow ${index + 1}`).trim() || `Flow ${index + 1}`,
-        entries: Array.isArray(flow.entries)
-            ? flow.entries.map(entry => ({
-                ...entry,
-                id: entry.id || randomUUID(),
-                label: entry.label || `${entry.provider}:${entry.modelId}`,
-            }))
-            : [],
-    }))
+    const body = await c.req.json<{ accountRouting?: AccountRoutingConfig }>()
 
     let accountRouting: AccountRoutingConfig | undefined
     if (body.accountRouting) {
@@ -108,6 +77,7 @@ routingRouter.post("/config", async (c) => {
                         ? route.entries.map(entry => ({
                             ...entry,
                             id: entry.id || randomUUID(),
+                            provider: entry.provider,
                         }))
                         : [],
                 }))
@@ -115,14 +85,7 @@ routingRouter.post("/config", async (c) => {
         }
     }
 
-    const config = saveRoutingConfig(normalized, undefined, accountRouting)
-    return c.json({ success: true, config })
-})
-
-// 🆕 设置/清除激活的 flow
-routingRouter.post("/active-flow", async (c) => {
-    const body = await c.req.json<{ flowId: string | null }>()
-    const config = setActiveFlow(body.flowId)
+    const config = saveRoutingConfig(accountRouting)
     return c.json({ success: true, config })
 })
 
@@ -132,29 +95,10 @@ routingRouter.post("/cleanup", async (c) => {
 
     // 获取所有有效账号
     const validAntigravity = new Set(authStore.listSummaries("antigravity").map(a => a.id || a.email))
-    const validCodex = new Set(authStore.listSummaries("codex").map(a => a.id || a.email))
-    const validCopilot = new Set(authStore.listSummaries("copilot").map(a => a.id || a.email))
+
+    // 扩展点：如果支持其他 Provider，在这里添加验证清单
 
     let removedCount = 0
-
-    // 清理每个 flow 中的孤立 entries
-    const cleanedFlows = config.flows.map(flow => ({
-        ...flow,
-        entries: flow.entries.filter(entry => {
-            let isValid = false
-            if (entry.provider === "antigravity") {
-                isValid = entry.accountId === "auto" || validAntigravity.has(entry.accountId)
-            } else if (entry.provider === "codex") {
-                isValid = validCodex.has(entry.accountId)
-            } else if (entry.provider === "copilot") {
-                isValid = validCopilot.has(entry.accountId)
-            }
-            if (!isValid) {
-                removedCount++
-            }
-            return isValid
-        })
-    }))
 
     // 清理 account routing 中的孤立 entries
     const cleanedAccountRouting = config.accountRouting ? {
@@ -165,11 +109,9 @@ routingRouter.post("/cleanup", async (c) => {
                 let isValid = false
                 if (entry.provider === "antigravity") {
                     isValid = entry.accountId === "auto" || validAntigravity.has(entry.accountId)
-                } else if (entry.provider === "codex") {
-                    isValid = validCodex.has(entry.accountId)
-                } else if (entry.provider === "copilot") {
-                    isValid = validCopilot.has(entry.accountId)
                 }
+                // else if (entry.provider === "other") { ... }
+
                 if (!isValid) {
                     removedCount++
                 }
@@ -179,7 +121,7 @@ routingRouter.post("/cleanup", async (c) => {
     } : config.accountRouting
 
     // 保存清理后的配置
-    const newConfig = saveRoutingConfig(cleanedFlows, undefined, cleanedAccountRouting)
+    const newConfig = saveRoutingConfig(cleanedAccountRouting)
 
     // 同时清理 account-manager 的 rate limit 状态
     accountManager.clearAllRateLimits()

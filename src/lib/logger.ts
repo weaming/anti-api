@@ -91,3 +91,7 @@ export function logQuota(): void {
 export function logError(status: number, message?: string): void {
     console.log(`${status}: ${message || "error"}`)
 }
+
+export function getAccountDisplay(provider: string, accountId: string): string {
+    return `${accountId}` // simplified
+}

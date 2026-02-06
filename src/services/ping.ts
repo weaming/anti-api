@@ -4,8 +4,6 @@ import type { AuthProvider } from "~/services/auth/types"
 import { createChatCompletionWithOptions } from "~/services/antigravity/chat"
 import { accountManager } from "~/services/antigravity/account-manager"
 import { fetchAntigravityModels } from "~/services/antigravity/quota-fetch"
-import { createCodexCompletion } from "~/services/codex/chat"
-import { createCopilotCompletion } from "~/services/copilot/chat"
 import { getProviderModels } from "~/services/routing/models"
 import { loadRoutingConfig } from "~/services/routing/config"
 import { UpstreamError } from "~/lib/error"
@@ -19,11 +17,14 @@ export async function pingAccount(
     accountId: string,
     modelId?: string
 ): Promise<{ modelId: string; latencyMs: number }> {
+    if (provider !== "antigravity") {
+        throw new Error(`Provider "${provider}" is not supported`)
+    }
+
     const routingModels = getRoutingModelsForAccount(provider, accountId)
     const providerModels = getProviderModels(provider).map(model => model.id)
-    const antigravityModels = provider === "antigravity"
-        ? await getAntigravityPingCandidates(accountId)
-        : []
+    const antigravityModels = await getAntigravityPingCandidates(accountId)
+
     const candidates = [
         modelId,
         ...routingModels,
@@ -41,40 +42,28 @@ export async function pingAccount(
         throw new Error(`No models available for provider "${provider}"`)
     }
 
-    const account = provider === "antigravity" ? null : authStore.getAccount(provider, accountId)
-    if (provider !== "antigravity" && !account) {
-        throw new Error(`Account not found: ${accountId}`)
-    }
+    // const account = provider === "antigravity" ? null : authStore.getAccount(provider, accountId)
+    // if (provider !== "antigravity" && !account) {
+    //     throw new Error(`Account not found: ${accountId}`)
+    // }
 
     let lastError: unknown = null
-    const maxAttempts = Math.min(uniqueCandidates.length, provider === "antigravity" ? 10 : 4)
+    const maxAttempts = Math.min(uniqueCandidates.length, 10)
 
     for (let i = 0; i < maxAttempts; i++) {
         const targetModel = uniqueCandidates[i]
         const start = Date.now()
         try {
-            if (provider === "antigravity") {
-                await createChatCompletionWithOptions(
-                    {
-                        model: targetModel,
-                        messages: PING_MESSAGES,
-                        maxTokens: 8,
-                        toolChoice: { type: "none" },
-                    },
-                    { accountId, allowRotation: false }
-                )
-                return { modelId: targetModel, latencyMs: Date.now() - start }
-            }
-
-            if (provider === "codex") {
-                await createCodexCompletion(account!, targetModel, PING_MESSAGES, undefined, 8)
-                return { modelId: targetModel, latencyMs: Date.now() - start }
-            }
-
-            if (provider === "copilot") {
-                await createCopilotCompletion(account!, targetModel, PING_MESSAGES, undefined, 8)
-                return { modelId: targetModel, latencyMs: Date.now() - start }
-            }
+            await createChatCompletionWithOptions(
+                {
+                    model: targetModel,
+                    messages: PING_MESSAGES,
+                    maxTokens: 8,
+                    toolChoice: { type: "none" },
+                },
+                { accountId, allowRotation: false }
+            )
+            return { modelId: targetModel, latencyMs: Date.now() - start }
         } catch (error) {
             lastError = error
             if (error instanceof UpstreamError && (error.status === 400 || error.status === 404)) {
@@ -95,14 +84,7 @@ function getRoutingModelsForAccount(provider: AuthProvider, accountId: string): 
     const config = loadRoutingConfig()
     const models: string[] = []
 
-    for (const flow of config.flows || []) {
-        for (const entry of flow.entries || []) {
-            if (entry.provider === provider && entry.accountId === accountId) {
-                models.push(entry.modelId)
-            }
-        }
-    }
-
+    // Only accountRouting is supported now
     const accountRouting = config.accountRouting?.routes || []
     for (const route of accountRouting) {
         if (!route.modelId) continue
@@ -138,3 +120,4 @@ async function getAntigravityPingCandidates(accountId: string): Promise<string[]
         return []
     }
 }
+

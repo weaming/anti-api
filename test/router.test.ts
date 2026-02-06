@@ -1,128 +1,129 @@
-import { test, expect } from "bun:test"
+import { test, expect, mock, describe, beforeEach } from "bun:test"
+import { resolveRoutingEntries, RoutingError } from "~/services/routing/router"
+import type { RoutingConfig } from "~/services/routing/config"
 
-// Test helper types matching router.ts
-interface RoutingEntry {
-    id: string
-    provider: "antigravity" | "codex" | "copilot"
-    accountId: string
-    modelId: string
-    label: string
-}
-
-interface RoutingFlow {
-    id: string
-    name: string
-    entries: RoutingEntry[]
-}
-
-// Reimplemented functions for isolated testing
-function getFlowKey(model: string): string {
-    const raw = model?.trim() || ""
-    if (raw.toLowerCase().startsWith("route:")) {
-        return raw.slice("route:".length).trim()
-    }
-    return raw
-}
-
-function selectFlowEntries(flows: RoutingFlow[], model: string): RoutingEntry[] {
-    if (flows.length === 0) {
-        return []
-    }
-
-    const flowKey = getFlowKey(model)
-    const exact = flows.find(flow => flow.name === flowKey)
-    if (exact) {
-        return exact.entries
-    }
-
+// Mocks
+const mockGetOfficialModelProviders = mock((model) => {
+    if (model === "official-model") return ["antigravity"]
+    if (model === "multi-provider") return ["antigravity", "other"]
     return []
-}
+})
+const mockHasAccount = mock((id) => id === "valid-account" || id === "acc1" || id === "acc2")
+const mockListAccounts = mock(() => ["acc1", "acc2"])
 
-function isEntryUsable(entry: RoutingEntry): boolean {
-    return !!(entry.accountId && entry.modelId)
-}
+// Mock imports
+mock.module("~/services/routing/models", () => ({
+    getOfficialModelProviders: mockGetOfficialModelProviders
+}))
 
-function normalizeEntries(entries: RoutingEntry[]): RoutingEntry[] {
-    return entries.filter(isEntryUsable)
-}
-
-const FALLBACK_STATUSES = new Set([401, 403, 408, 429, 500, 503, 529])
-
-function shouldFallbackOnUpstream(status: number): boolean {
-    return FALLBACK_STATUSES.has(status)
-}
-
-// Helper to create test entries
-function makeEntry(id: string, provider: "antigravity" = "antigravity"): RoutingEntry {
-    return {
-        id,
-        provider,
-        accountId: `account-${id}`,
-        modelId: `model-${id}`,
-        label: `Label ${id}`,
+mock.module("~/services/antigravity/account-manager", () => ({
+    accountManager: {
+        hasAccount: mockHasAccount,
+        listAccounts: mockListAccounts
     }
-}
+}))
 
-// Tests
+describe("resolveRoutingEntries", () => {
+    beforeEach(() => {
+        mockGetOfficialModelProviders.mockClear()
+        mockHasAccount.mockClear()
+        mockListAccounts.mockClear()
+    })
 
-test("getFlowKey extracts route: prefix", () => {
-    expect(getFlowKey("route:my-flow")).toBe("my-flow")
-    expect(getFlowKey("Route:My-Flow")).toBe("My-Flow")
-    expect(getFlowKey("  route:spaced")).toBe("spaced")
-})
+    test("throws if model is not official", () => {
+        expect(() => resolveRoutingEntries({} as any, "unknown-model")).toThrow(RoutingError)
+    })
 
-test("getFlowKey returns model as-is without prefix", () => {
-    expect(getFlowKey("claude-sonnet-4-5")).toBe("claude-sonnet-4-5")
-    expect(getFlowKey("gpt-4")).toBe("gpt-4")
-    expect(getFlowKey("")).toBe("")
-})
+    test("throws if no routing and smartSwitch disabled", () => {
+        const config: RoutingConfig = {
+            version: 1,
+            updatedAt: "",
+            accountRouting: {
+                smartSwitch: false,
+                routes: []
+            }
+        }
+        expect(() => resolveRoutingEntries(config, "official-model")).toThrow(RoutingError)
+    })
 
-test("selectFlowEntries finds exact match by name", () => {
-    const flows = [
-        { id: "flow-default", name: "default", entries: [makeEntry("default")] },
-        { id: "flow-opus", name: "opus", entries: [makeEntry("opus")] },
-    ]
+    test("auto-fills if no routing and smartSwitch enabled", () => {
+        const config: RoutingConfig = {
+            version: 1,
+            updatedAt: "",
+            accountRouting: {
+                smartSwitch: true,
+                routes: []
+            }
+        }
+        // Should return auto entries for antigravity
+        const entires = resolveRoutingEntries(config, "official-model")
+        expect(entires.length).toBe(2)
+        expect(entires[0].provider).toBe("antigravity")
+        expect(entires[0].id).toContain("auto-antigravity")
+    })
 
-    const result = selectFlowEntries(flows, "route:opus")
-    expect(result.length).toBe(1)
-    expect(result[0].id).toBe("opus")
-})
+    test("expands 'auto' accountId", () => {
+        const config: RoutingConfig = {
+            version: 1,
+            updatedAt: "",
+            accountRouting: {
+                smartSwitch: true,
+                routes: [{
+                    id: "r1",
+                    modelId: "official-model",
+                    entries: [{
+                        id: "e1",
+                        provider: "antigravity",
+                        accountId: "auto",
+                        modelId: ""
+                    }]
+                }]
+            }
+        }
+        const entries = resolveRoutingEntries(config, "official-model")
+        expect(entries.length).toBe(2)
+        expect(entries[0].accountId).not.toBe("auto")
+    })
 
-test("selectFlowEntries returns empty when no match", () => {
-    const flows = [
-        { id: "flow-opus", name: "opus", entries: [makeEntry("opus")] },
-        { id: "flow-fast", name: "fast", entries: [makeEntry("fast")] },
-    ]
+    test("filters unavailable accounts", () => {
+        const config: RoutingConfig = {
+            version: 1,
+            updatedAt: "",
+            accountRouting: {
+                smartSwitch: false,
+                routes: [{
+                    id: "r1",
+                    modelId: "official-model",
+                    entries: [
+                        { id: "e1", provider: "antigravity", accountId: "valid-account", modelId: "" },
+                        { id: "e2", provider: "antigravity", accountId: "invalid-account", modelId: "" }
+                    ]
+                }]
+            }
+        }
+        const entries = resolveRoutingEntries(config, "official-model")
+        expect(entries.length).toBe(1)
+        expect(entries[0].accountId).toBe("valid-account")
+    })
 
-    const result = selectFlowEntries(flows, "route:unknown")
-    expect(result).toEqual([])
-})
-
-test("selectFlowEntries returns empty for no flows", () => {
-    expect(selectFlowEntries([], "any")).toEqual([])
-})
-
-test("normalizeEntries filters out invalid entries", () => {
-    const entries: RoutingEntry[] = [
-        makeEntry("valid"),
-        { id: "no-account", provider: "antigravity", accountId: "", modelId: "m", label: "x" },
-        { id: "no-model", provider: "antigravity", accountId: "a", modelId: "", label: "y" },
-    ]
-
-    const result = normalizeEntries(entries)
-    expect(result.length).toBe(1)
-    expect(result[0].id).toBe("valid")
-})
-
-test("shouldFallbackOnUpstream returns true for fallback statuses", () => {
-    expect(shouldFallbackOnUpstream(429)).toBe(true)
-    expect(shouldFallbackOnUpstream(500)).toBe(true)
-    expect(shouldFallbackOnUpstream(503)).toBe(true)
-    expect(shouldFallbackOnUpstream(401)).toBe(true)
-})
-
-test("shouldFallbackOnUpstream returns false for success/other statuses", () => {
-    expect(shouldFallbackOnUpstream(200)).toBe(false)
-    expect(shouldFallbackOnUpstream(400)).toBe(false)
-    expect(shouldFallbackOnUpstream(404)).toBe(false)
+    test("falls back to auto if all configured fail and smartSwitch enabled", () => {
+        const config: RoutingConfig = {
+            version: 1,
+            updatedAt: "",
+            accountRouting: {
+                smartSwitch: true,
+                routes: [{
+                    id: "r1",
+                    modelId: "official-model",
+                    entries: [
+                        { id: "e1", provider: "antigravity", accountId: "invalid-account", modelId: "" }
+                    ]
+                }]
+            }
+        }
+        // Should fallback to auto entries (which come from listAccounts -> acc1, acc2)
+        // Check mockListAccounts
+        const entries = resolveRoutingEntries(config, "official-model")
+        expect(entries.length).toBe(2)
+    })
 })

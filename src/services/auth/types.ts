@@ -1,5 +1,5 @@
-export type AuthProvider = "antigravity" | "codex" | "copilot"
-export type AuthSource = "codex-cli" | "cli-proxy"
+export type AuthProvider = "antigravity"
+export type AuthSource = "cli-proxy"
 
 export interface ProviderAccount {
     id: string
