@@ -8,6 +8,8 @@ export const DEFAULT_PORT = 8964
 
 // 支持的模型列表（用于/v1/models端点）
 // 只显示 7 个配额面板可见且已确认可用的模型
+// 支持的模型列表（用于/v1/models端点）
+// 与 README.md 保持一致
 export const AVAILABLE_MODELS = [
     // Claude 4.5 系列
     { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },

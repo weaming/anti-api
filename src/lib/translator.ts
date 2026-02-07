@@ -17,6 +17,7 @@ export interface ClaudeContentBlock {
     input?: any
     tool_use_id?: string
     content?: string
+    thought_signature?: string // Gemini specific: required for tools to work
     source?: {
         type: "base64"
         media_type: string

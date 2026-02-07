@@ -143,19 +143,8 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
     }
 }
 
-const MODEL_MAPPING: Record<string, string> = {
-    "claude-sonnet-4-5": "claude-sonnet-4-5",
-    "claude-sonnet-4-5-thinking": "claude-sonnet-4-5-thinking",
-    "claude-opus-4-5-thinking": "claude-opus-4-5-thinking",
-    "claude-sonnet-4-5-20251001": "claude-sonnet-4-5",
-    "gemini-3-pro-high": "gemini-3-pro-high",
-    "gemini-3-pro-low": "gemini-3-pro-low",
-    "gemini-3-flash": "gemini-3-flash",
-    "gpt-oss-120b": "gpt-oss-120b",
-}
-
 function getAntigravityModelName(userModel: string): string {
-    return MODEL_MAPPING[userModel] || userModel
+    return userModel || ""
 }
 
 export interface ChatRequest {
@@ -175,6 +164,7 @@ export interface ContentBlock {
     id?: string
     name?: string
     input?: any
+    thought_signature?: string
 }
 
 export interface ChatResponse {
@@ -278,21 +268,43 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
         }
 
         if (block.type === "tool_use") {
-            const toolId = block.id || generateToolUseId()
+            let toolId = block.id || generateToolUseId()
+            let thoughtSignature: string | undefined
+
+            // Extract thought signature from ID if present (persistence hack)
+            if (toolId.includes("__THOUGHT__")) {
+                const [cleanId, signature] = toolId.split("__THOUGHT__")
+                toolId = cleanId
+                toolId = cleanId
+                thoughtSignature = signature
+            }
+
             const toolName = block.name || toolId
             toolIdToName.set(toolId, toolName)
+
             parts.push({
                 functionCall: {
                     name: toolName,
                     args: block.input || {},
                     id: toolId,
                 },
+                ...(thoughtSignature ? { thoughtSignature: thoughtSignature } : {}),
+                ...(block.thought_signature ? { thoughtSignature: block.thought_signature } : {}),
             })
             continue
         }
 
         if (block.type === "tool_result") {
-            const toolUseId = block.tool_use_id || ""
+            let toolUseId = block.tool_use_id || ""
+            let thoughtSignature: string | undefined
+
+            // Extract thought signature from ID if present
+            if (toolUseId.includes("__THOUGHT__")) {
+                const [cleanId, signature] = toolUseId.split("__THOUGHT__")
+                toolUseId = cleanId
+                thoughtSignature = signature
+            }
+
             const toolName = toolIdToName.get(toolUseId) || toolUseId || "tool"
             const merged = mergeToolResultContent(block.content, (block as any).is_error)
             const functionResponse: any = {
@@ -300,6 +312,12 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
                 response: { result: merged },
             }
             if (toolUseId) functionResponse.id = toolUseId
+
+            // Important: We need to ensure the previous turn's functionCall also has the signature?
+            // Wait, this is for `tool_result` (user/tool role). The signature is on the `functionCall` (model role).
+            // We need to modify the MODEL message processing, not the TOOL message processing.
+            // Oh right, `toolIdToName` map.
+
             parts.push({ functionResponse })
             continue
         }
@@ -432,11 +450,12 @@ function claudeToAntigravity(
         },
     }
 
-    if (model.includes("claude")) {
+    // Always add function calling config if tools are present or toolChoice is set
+    if (toolChoice || (tools && tools.length > 0)) {
         innerRequest.toolConfig = { functionCallingConfig: buildFunctionCallingConfig(toolChoice) }
     }
 
-    if (tools && tools.length > 0 && model.includes("claude")) {
+    if (tools && tools.length > 0) {
         innerRequest.tools = tools.map(tool => ({
             functionDeclarations: [{
                 name: tool.name,
@@ -445,6 +464,13 @@ function claudeToAntigravity(
             }]
         }))
     }
+
+    // Verify thought_signature presence in history
+    try {
+        const historyParts = innerRequest.contents.flatMap((c: any) => c.parts);
+        const thoughtParts = historyParts.filter((p: any) => p.functionCall && p.functionCall.thought_signature);
+        console.log(`[DEBUG] Request contains ${thoughtParts.length} functionCalls with thought_signature`);
+    } catch (e) { }
 
     return {
         model,
@@ -485,6 +511,7 @@ function parseApiResponse(rawResponse: string): ChatResponse {
                     id: part.functionCall.id || generateToolUseId(),
                     name: part.functionCall.name,
                     input,
+                    ...(part.thoughtSignature ? { thought_signature: part.thoughtSignature } : {}),
                 })
             }
         }
@@ -1135,7 +1162,14 @@ export async function* createChatCompletionStreamWithOptions(
                     }
 
                     hasToolUse = true
-                    const toolStart = { type: "content_block_start", index: blockIndex, content_block: { type: "tool_use", id: part.functionCall.id || generateToolUseId(), name: part.functionCall.name, input: {} } }
+                    const toolStart: any = { type: "content_block_start", index: blockIndex, content_block: { type: "tool_use", id: part.functionCall.id || generateToolUseId(), name: part.functionCall.name, input: {} } }
+                    // Correctly extract thoughtSignature from part (it's a sibling of functionCall)
+                    if (part.thoughtSignature) {
+                        toolStart.content_block.thought_signature = part.thoughtSignature
+                    } else if (part.functionCall.thought_signature) {
+                        // Fallback just in case
+                        toolStart.content_block.thought_signature = part.functionCall.thought_signature
+                    }
                     yield "event: content_block_start\ndata: " + JSON.stringify(toolStart) + "\n\n"
                     if (part.functionCall.args) {
                         const rawArgs = part.functionCall.args

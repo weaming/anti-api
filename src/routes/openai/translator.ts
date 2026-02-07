@@ -5,25 +5,8 @@
 import type { ClaudeMessage, ClaudeTool } from "~/lib/translator"
 import type { OpenAIMessage, OpenAITool } from "./types"
 
-const MODEL_MAPPING: Record<string, string> = {
-    // GPT → Claude 映射 (使用 Antigravity 正确的模型名称)
-    "gpt-4": "claude-sonnet-4-5",
-    "gpt-4o": "claude-sonnet-4-5",
-    "gpt-4-turbo": "claude-sonnet-4-5",
-    "gpt-3.5-turbo": "gemini-3-flash",  // 使用 Gemini 作为轻量模型
-    "o1": "claude-sonnet-4-5-thinking",
-    "o1-mini": "gemini-3-flash",
-
-    // 🆕 补全 Claude 4.5 系列别名
-    "claude-opus-4-5": "claude-opus-4-5-thinking",
-    "claude-opus-4.5": "claude-opus-4-5-thinking",
-    "claude-sonnet-4.5": "claude-sonnet-4-5",
-    "claude-sonnet-4-5-thinking": "claude-sonnet-4-5-thinking",
-}
-
 export function mapModel(openaiModel: string): string {
-    const raw = (openaiModel || "").trim().toLowerCase()
-    return MODEL_MAPPING[raw] || openaiModel
+    return (openaiModel || "").trim().toLowerCase()
 }
 
 export function translateMessages(messages: OpenAIMessage[]): ClaudeMessage[] {

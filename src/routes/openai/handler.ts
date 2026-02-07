@@ -61,14 +61,21 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
             throw error
         }
 
+        const chatResponse = result as any // Validation above ensures it's ChatResponse if stream=false
+
         let textContent = ""
         const toolCalls: any[] = []
 
-        for (const block of result.contentBlocks) {
+        for (const block of chatResponse.contentBlocks) {
             if (block.type === "text") {
                 textContent += block.text || ""
             } else if (block.type === "tool_use") {
-                toolCalls.push({ id: block.id, name: block.name, input: block.input })
+                let id = block.id || ""
+                // Gemini: Preserve thought_signature in ID so it survives the round trip (for non-streaming)
+                if (block.thought_signature) {
+                    id += `__THOUGHT__${block.thought_signature}`
+                }
+                toolCalls.push({ id, name: block.name, input: block.input })
             }
         }
 
@@ -82,15 +89,15 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
         }
 
         // Token counts for response (Usage recording is handled in chat.ts with actual native model ID)
-        const inputTokens = result.usage?.inputTokens || 0
-        const outputTokens = result.usage?.outputTokens || 0
+        const inputTokens = chatResponse.usage?.inputTokens || 0
+        const outputTokens = chatResponse.usage?.outputTokens || 0
 
         return c.json({
             id: generateChatId(),
             object: "chat.completion",
             created: Math.floor(Date.now() / 1000),
             model: payload.model,
-            choices: [{ index: 0, message, finish_reason: mapStopReason(result.stopReason || "end_turn") }],
+            choices: [{ index: 0, message, finish_reason: mapStopReason(chatResponse.stopReason || "end_turn") }],
             usage: {
                 prompt_tokens: inputTokens,
                 completion_tokens: outputTokens,
@@ -164,6 +171,10 @@ async function handleStreamCompletion(
                                         name: parsed.content_block.name,
                                         input: {},
                                         arguments: "",
+                                    }
+                                    // Gemini: Preserve thought_signature in ID so it survives the round trip
+                                    if (parsed.content_block.thought_signature) {
+                                        currentToolCall.id += `__THOUGHT__${parsed.content_block.thought_signature}`
                                     }
                                 }
                                 break
