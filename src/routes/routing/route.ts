@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { authStore } from "~/services/auth/store"
 import { getProviderModels } from "~/services/routing/models"
-import { loadRoutingConfig, saveRoutingConfig, setActiveFlow, type RoutingEntry, type RoutingFlow, type AccountRoutingConfig } from "~/services/routing/config"
+import { loadRoutingConfig, saveRoutingConfig, type RoutingEntry, type AccountRoutingConfig } from "~/services/routing/config"
 import { accountManager } from "~/services/antigravity/account-manager"
 import { getAggregatedQuota } from "~/services/quota-aggregator"
 import { readFileSync } from "fs"
@@ -13,7 +13,7 @@ export const routingRouter = new Hono()
 
 routingRouter.get("/", (c) => {
     try {
-        const htmlPath = join(import.meta.dir, "../../../public/routing.html")
+        const htmlPath = join(process.cwd(), "public/routing.html")
         const html = readFileSync(htmlPath, "utf-8")
         return c.html(html)
     } catch {

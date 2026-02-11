@@ -77,7 +77,7 @@ server.route("/logs", logsRouter)
 // Remote 控制页面 - HTML
 server.get("/remote-panel", async (c) => {
     try {
-        const htmlPath = join(import.meta.dir, "../public/remote.html")
+        const htmlPath = join(process.cwd(), "public/remote.html")
         const html = readFileSync(htmlPath, "utf-8")
         return c.html(html)
     } catch (error) {
@@ -165,7 +165,7 @@ server.get("/models", modelsHandler)  // 无前缀版本 for GUI tools
 // 配额面板 - HTML Dashboard
 server.get("/quota", async (c) => {
     try {
-        const htmlPath = join(import.meta.dir, "../public/quota.html")
+        const htmlPath = join(process.cwd(), "public/quota.html")
         const html = readFileSync(htmlPath, "utf-8")
         return c.html(html)
     } catch (error) {
@@ -176,7 +176,7 @@ server.get("/quota", async (c) => {
 // 接入指南 - HTML
 server.get("/connect", async (c) => {
     try {
-        const htmlPath = join(import.meta.dir, "../public/connect.html")
+        const htmlPath = join(process.cwd(), "public/connect.html")
         const html = readFileSync(htmlPath, "utf-8")
         return c.html(html)
     } catch (error) {
