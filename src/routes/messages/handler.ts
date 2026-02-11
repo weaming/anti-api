@@ -119,7 +119,7 @@ export async function handleCompletion(c: Context): Promise<Response> {
         }
 
         // 非流式请求
-            let result
+        let result
         try {
             result = await createRoutedCompletion({
                 model: anthropicModel,
@@ -187,6 +187,11 @@ async function handleStreamCompletion(
     toolChoice: AnthropicMessagesPayload["tool_choice"] | undefined
 ): Promise<Response> {
     return streamSSE(c, async (stream) => {
+        // 🆕 Add headers to disable buffering in proxies (Nginx, etc.)
+        c.header("X-Accel-Buffering", "no")
+        c.header("Cache-Control", "no-cache")
+        c.header("Connection", "keep-alive")
+
         const pingInterval = setInterval(() => {
             stream.write(": ping\n\n").catch(() => { })
         }, 15000)
