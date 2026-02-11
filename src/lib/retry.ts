@@ -190,35 +190,62 @@ export function determineRetryStrategy(
 }
 
 /**
+ * 添加随机抖动（jitter）以避免惊群效应
+ * @param delayMs 基础延迟时间
+ * @param jitterPercent 抖动百分比（默认 20%）
+ */
+export function addJitter(delayMs: number, jitterPercent: number = 0.2): number {
+    const jitter = delayMs * jitterPercent
+    const randomOffset = (Math.random() * 2 - 1) * jitter // -jitter ~ +jitter
+    return Math.max(0, Math.round(delayMs + randomOffset))
+}
+
+/**
  * 计算当前尝试的等待时间
+ * 🆕 增加 jitter 支持，避免多个请求同时重试
  */
 export function calculateRetryDelay(
     strategy: RetryStrategy,
-    attempt: number
+    attempt: number,
+    enableJitter: boolean = true
 ): number | null {
+    let baseDelay: number | null = null
+
     switch (strategy.type) {
         case "no_retry":
             return null
 
         case "fixed_delay":
-            return strategy.delayMs
+            baseDelay = strategy.delayMs
+            break
 
         case "linear_backoff":
-            return strategy.baseMs * (attempt + 1)
+            baseDelay = strategy.baseMs * (attempt + 1)
+            break
 
         case "exponential_backoff":
-            return Math.min(strategy.baseMs * Math.pow(2, attempt), strategy.maxMs)
+            baseDelay = Math.min(strategy.baseMs * Math.pow(2, attempt), strategy.maxMs)
+            break
     }
+
+    // 🆕 添加 jitter 避免惊群效应
+    if (baseDelay !== null && enableJitter) {
+        return addJitter(baseDelay)
+    }
+
+    return baseDelay
 }
 
 /**
  * 执行退避等待
+ * 🆕 支持 jitter
  */
 export async function applyRetryDelay(
     strategy: RetryStrategy,
-    attempt: number
+    attempt: number,
+    enableJitter: boolean = true
 ): Promise<boolean> {
-    const delayMs = calculateRetryDelay(strategy, attempt)
+    const delayMs = calculateRetryDelay(strategy, attempt, enableJitter)
     if (delayMs === null) {
         return false
     }

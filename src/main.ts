@@ -123,6 +123,27 @@ const start = defineCommand({
 
         logStartupSuccess(state.port)
 
+        // 🆕 启动 Token 后台刷新服务
+        if (accountManager.count() > 0) {
+            const { tokenRefreshService } = await import("./services/antigravity/token-refresh-service")
+            tokenRefreshService.start()
+            consola.success("Token refresh service started")
+        }
+
+        // 🆕 设置断路器告警
+        const { accountCircuitBreakers, CircuitState } = await import("./lib/circuit-breaker")
+        const emails = accountManager.getEmails()
+        for (const email of emails) {
+            const breaker = accountCircuitBreakers.getBreaker(email)
+            breaker.onStateChange((state, b) => {
+                if (state === CircuitState.OPEN) {
+                    consola.warn(`⚠️  ALERT: Circuit breaker OPEN for account ${b.getName()} - service degraded`)
+                } else if (state === CircuitState.CLOSED) {
+                    consola.success(`✓ Circuit breaker RECOVERED for account ${b.getName()}`)
+                }
+            })
+        }
+
         // 根据设置决定是否自动打开面板
         if (getSetting("autoOpenDashboard")) {
             openBrowser(`http://localhost:${state.port}/quota`)

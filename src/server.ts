@@ -327,3 +327,39 @@ server.get("/health", (c) => c.json({
     status: "ok",
     authenticated: isAuthenticated(),
 }))
+
+// 🆕 断路器状态监控
+server.get("/health/circuit-breakers", async (c) => {
+    const { accountCircuitBreakers } = await import("./lib/circuit-breaker")
+    const metrics = accountCircuitBreakers.getAllMetrics()
+    
+    const result: Record<string, any> = {}
+    for (const [name, metric] of metrics) {
+        result[name] = {
+            state: metric.state,
+            failureCount: metric.failureCount,
+            successCount: metric.successCount,
+            lastFailureTime: metric.lastFailureTime,
+            lastSuccessTime: metric.lastSuccessTime,
+            nextAttemptTime: metric.nextAttemptTime,
+        }
+    }
+    
+    return c.json({
+        timestamp: new Date().toISOString(),
+        circuitBreakers: result,
+        summary: {
+            total: metrics.size,
+            open: Array.from(metrics.values()).filter(m => m.state === "open").length,
+            halfOpen: Array.from(metrics.values()).filter(m => m.state === "half_open").length,
+            closed: Array.from(metrics.values()).filter(m => m.state === "closed").length,
+        }
+    })
+})
+
+// 🆕 重置所有断路器
+server.post("/health/circuit-breakers/reset", async (c) => {
+    const { accountCircuitBreakers } = await import("./lib/circuit-breaker")
+    accountCircuitBreakers.resetAll()
+    return c.json({ success: true, message: "All circuit breakers reset" })
+})

@@ -12,6 +12,10 @@ import { determineRetryStrategy, applyRetryDelay } from "~/lib/retry"
 import { UpstreamError } from "~/lib/error"
 import { cleanJsonSchemaForGemini } from "~/lib/json-schema-cleaner"
 import { formatLogTime, setRequestLogContext } from "~/lib/logger"
+// 🆕 导入新的稳定性功能
+import { classifyError, ErrorCategory } from "~/lib/error-categories"
+import { accountCircuitBreakers } from "~/lib/circuit-breaker"
+import { fetchWithTimeout as enhancedFetchWithTimeout, STREAMING_TIMEOUT_CONFIG, DEFAULT_TIMEOUT_CONFIG } from "~/lib/timeout"
 
 accountManager.load()
 
@@ -582,13 +586,15 @@ async function sendRequestSse(
                 lastStatusCode = response.status
                 lastRetryAfterHeader = response.headers.get("retry-after") || undefined
                 lastErrorText = await response.text()
-                consola.warn("SSE error " + response.status, lastErrorText.substring(0, 200))
+                
+                // 🆕 使用新的错误分类系统
+                const errorClassification = classifyError(lastStatusCode, lastErrorText, lastRetryAfterHeader)
+                consola.warn(`SSE error ${response.status} [${errorClassification.category}]`, lastErrorText.substring(0, 200))
 
                 if (lastStatusCode === 429 && currentAccountId) {
                     const quotaExhausted = isQuotaExhaustedErrorText(lastErrorText)
-                    // 🆕 解析等待时间，如果无法解析则使用默认 2 秒
-                    const parsedDelay = parseRetryDelay(lastErrorText, lastRetryAfterHeader)
-                    const retryDelayMs = parsedDelay ?? 2000  // 默认 2 秒
+                    // 🆕 使用分类系统的建议延迟
+                    const retryDelayMs = errorClassification.suggestedDelayMs ?? 2000
                     const boundedDelayMs = Math.min(retryDelayMs, MAX_NON_QUOTA_429_WAIT_MS)
 
                     // 🆕 非配额 429：始终重试同一账号，不切换
