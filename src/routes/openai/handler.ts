@@ -34,8 +34,9 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
         await rateLimiter.wait()
 
         const anthropicModel = mapModel(payload.model)
+        console.log(`[Incoming] model="${payload.model}" stream=${!!payload.stream}`)
         if (payload.model !== anthropicModel) {
-            console.log(`200: model "${payload.model}" -> "${anthropicModel}"`)
+            console.log(`[Incoming] model remapped: "${payload.model}" -> "${anthropicModel}"`)
         }
         const messages = translateMessages(payload.messages)
         const tools = translateTools(payload.tools)

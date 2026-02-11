@@ -80,6 +80,8 @@ export async function handleCompletion(c: Context): Promise<Response> {
         await rateLimiter.wait()
         let anthropicModel = mapModel(payload.model)
 
+        console.log(`[Incoming] model="${payload.model}" stream=${!!payload.stream}`)
+
         // 🆕 自动检测 Anthropic 特有的 thinking 字段并升级模型 ID
         if (payload.thinking?.type === "enabled" && !anthropicModel.endsWith("-thinking")) {
             const upgraded = `${anthropicModel}-thinking`
@@ -89,7 +91,7 @@ export async function handleCompletion(c: Context): Promise<Response> {
         }
 
         if (payload.model !== anthropicModel) {
-            console.log(`200: model "${payload.model}" -> "${anthropicModel}"`)
+            console.log(`[Incoming] model remapped: "${payload.model}" -> "${anthropicModel}"`)
         }
 
         const messages = translateMessages(payload)

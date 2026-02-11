@@ -1,5 +1,4 @@
 import { fetchInsecureJson, getProjectID } from "./oauth"
-import { generateMockProjectId } from "./project-id"
 import { UpstreamError } from "~/lib/error"
 
 const CLOUD_CODE_BASE_URL = "https://cloudcode-pa.googleapis.com"
@@ -14,7 +13,7 @@ export async function fetchAntigravityModels(
     accessToken: string,
     projectId?: string | null
 ): Promise<{ models: Record<string, AntigravityModelInfo>; projectId: string | null }> {
-    const resolvedProjectId = projectId || await getProjectID(accessToken) || generateMockProjectId()
+    const resolvedProjectId = projectId || await getProjectID(accessToken)
     const project = resolvedProjectId
 
     const response = await fetchInsecureJson(`${CLOUD_CODE_BASE_URL}/v1internal:fetchAvailableModels`, {

@@ -1,6 +1,6 @@
 import type { ClaudeMessage, ClaudeTool } from "~/lib/translator"
 import { UpstreamError } from "~/lib/error"
-import { createChatCompletionWithOptions, createChatCompletionStreamWithOptions } from "~/services/antigravity/chat"
+import { createChatCompletionWithOptions, createChatCompletionStreamWithOptions, type ChatResponse } from "~/services/antigravity/chat"
 import { loadRoutingConfig, type AccountRoutingEntry, type RoutingConfig } from "./config"
 import { accountManager } from "~/services/antigravity/account-manager"
 import { authStore } from "~/services/auth/store"
@@ -135,7 +135,7 @@ async function executeProviderRequest(entry: AccountRoutingEntry, request: Route
     throw new Error(`Unsupported provider: ${entry.provider}`)
 }
 
-export async function createRoutedCompletion(request: RoutedRequest) {
+export async function createRoutedCompletion(request: RoutedRequest): Promise<ChatResponse> {
     const config = loadRoutingConfig()
     const entries = resolveRoutingEntries(config, request.model)
 
@@ -160,7 +160,7 @@ export async function createRoutedCompletion(request: RoutedRequest) {
         }
 
         try {
-            const result = await executeProviderRequest(entry, request, false)
+            const result = await executeProviderRequest(entry, request, false) as ChatResponse
             state.cursor = index
             recordProviderUsage(request.model, result)
             return result

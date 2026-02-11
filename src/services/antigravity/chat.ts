@@ -441,7 +441,7 @@ function claudeToAntigravity(
     }))
 
     const sessionId = generateStableSessionId(messages)
-    const projectId = state.cloudaicompanionProject || "unknown"
+    const projectId = state.cloudaicompanionProject || undefined
 
     const innerRequest: any = {
         contents,
@@ -586,7 +586,7 @@ async function sendRequestSse(
                 lastStatusCode = response.status
                 lastRetryAfterHeader = response.headers.get("retry-after") || undefined
                 lastErrorText = await response.text()
-                
+
                 // 🆕 使用新的错误分类系统
                 const errorClassification = classifyError(lastStatusCode, lastErrorText, lastRetryAfterHeader)
                 consola.warn(`SSE error ${response.status} [${errorClassification.category}]`, lastErrorText.substring(0, 200))
@@ -693,10 +693,16 @@ async function sendRequestSse(
 
                 if (shouldTryNextEndpoint(lastStatusCode)) {
                     lastError = new Error("SSE API error: " + response.status)
+                    if (response.status === 404) {
+                        consola.error(`[AntigravityChat] 404 Details - URL: ${url}, Project: ${antigravityRequest.project}`)
+                    }
                     continue
                 }
 
                 consola.error(`[AntigravityChat] Upstream error ${response.status}: ${lastErrorText}`)
+                if (response.status === 404) {
+                    consola.error(`[AntigravityChat] 404 Details - URL: ${url}, Project: ${antigravityRequest.project}`)
+                }
                 throw new UpstreamError("antigravity", response.status, lastErrorText, lastRetryAfterHeader)
             } catch (e) {
                 // 🆕 UpstreamError (包括 429) 立即重新抛出，不继续尝试
@@ -836,6 +842,9 @@ async function* sendRequestSseStreaming(
                     }
                     if (shouldTryNextEndpoint(response.status)) {
                         lastError = new UpstreamError("antigravity", response.status, errorText, response.headers.get("retry-after") || undefined)
+                        if (response.status === 404) {
+                            console.error(`[AntigravityChat Streaming] 404 Details - URL: ${url}, Project: ${antigravityRequest.project}`)
+                        }
                         retryAttempt = true
                         continue
                     }
@@ -1140,7 +1149,7 @@ export async function* createChatCompletionStreamWithOptions(
             request.toolChoice
         )
 
-        if (projectId) antigravityRequest.project = projectId
+        if (projectId && projectId !== "unknown") antigravityRequest.project = projectId
 
         // 🆕 使用真正的流式读取，边读边处理边 yield
         const sseStream = sendRequestSseStreaming(

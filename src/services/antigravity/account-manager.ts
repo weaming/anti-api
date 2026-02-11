@@ -5,7 +5,6 @@
 
 import { state } from "~/lib/state"
 import { refreshAccessToken, getProjectID } from "./oauth"
-import { generateMockProjectId } from "./project-id"
 import * as fs from "fs"
 import * as path from "path"
 import consola from "consola"
@@ -838,7 +837,7 @@ class AccountManager {
 
         let resolved = await getProjectID(account.accessToken)
         if (!resolved) {
-            resolved = generateMockProjectId()
+            resolved = "unknown"
             consola.warn(`Account ${account.email} missing project_id, using fallback ${resolved}`)
         }
 
