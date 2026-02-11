@@ -744,6 +744,10 @@ async function* sendRequestSseStreaming(
     const rotationBudget = allowRotation ? Math.max(0, accountManager.count() - 1) : 0
     const maxAttempts = MAX_NON_QUOTA_429_RETRIES + 1 + rotationBudget
 
+    let lastStatusCode = 0
+    let lastErrorText = ""
+    let lastRetryAfterHeader: string | undefined
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         let retryAttempt = false
         for (const baseUrl of ANTIGRAVITY_BASE_URLS) {
@@ -769,6 +773,9 @@ async function* sendRequestSseStreaming(
 
                 if (!response.ok) {
                     const errorText = await response.text()
+                    lastStatusCode = response.status
+                    lastErrorText = errorText
+                    lastRetryAfterHeader = response.headers.get("retry-after") || undefined
                     if (response.status === 429 && currentAccountId) {
                         const quotaExhausted = isQuotaExhaustedErrorText(errorText)
                         if (quotaExhausted) {
@@ -780,8 +787,23 @@ async function* sendRequestSseStreaming(
                             throw lastError
                         }
 
+                        if (allowRotation && accountManager.count() > 1) {
+                            const next = await accountManager.getNextAvailableAccount(true)
+                            if (next && next.accountId !== currentAccountId) {
+                                currentAccessToken = next.accessToken
+                                currentAccountId = next.accountId
+                                antigravityRequest.project = next.projectId
+                                // Break out of endpoint loop to retry with new account
+                                lastError = new UpstreamError("antigravity", 429, "429 - switched account", undefined)
+                                retryAttempt = true
+                                break
+                            }
+                        }
+
                         const parsedDelay = parseRetryDelay(errorText, response.headers.get("retry-after") || undefined)
                         const waitMs = Math.min(parsedDelay ?? 2000, MAX_NON_QUOTA_429_WAIT_MS)
+
+                        // 🆕 Fix: Retry logic for non-switched account (same account wait)
                         if (nonQuota429Count < MAX_NON_QUOTA_429_RETRIES) {
                             await new Promise(resolve => setTimeout(resolve, waitMs))
                             nonQuota429Count += 1
@@ -808,6 +830,7 @@ async function* sendRequestSseStreaming(
                     }
                     if (shouldTryNextEndpoint(response.status)) {
                         lastError = new UpstreamError("antigravity", response.status, errorText, response.headers.get("retry-after") || undefined)
+                        retryAttempt = true
                         continue
                     }
                     consola.error(`[AntigravityChat SSE] Upstream error ${response.status}: ${errorText}`)
@@ -920,6 +943,20 @@ async function* sendRequestSseStreaming(
                 continue
             }
         }
+        // 🆕 如果是账户切换、token 刷新或已等待重试，直接继续下一轮 attempt（不等待 delay）
+        if (lastError?.message === "429 - switched account" ||
+            lastError?.message === "429 - waited and retry" ||
+            lastError?.message === "401 - token refreshed" ||
+            lastError?.message === "401 - switched account") {
+            continue
+        }
+
+        if (retryAttempt && lastStatusCode > 0) {
+            const strategy = determineRetryStrategy(lastStatusCode, lastErrorText, lastRetryAfterHeader)
+            await applyRetryDelay(strategy, attempt)
+            if (attempt < maxAttempts - 1) continue
+        }
+
         if (!retryAttempt) {
             break
         }
