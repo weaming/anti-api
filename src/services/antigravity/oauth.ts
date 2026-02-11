@@ -5,6 +5,8 @@
 
 import { state } from "~/lib/state"
 import consola from "consola"
+import https from "https"
+import { URL } from "url"
 
 // OAuth 配置（来自 CLIProxyAPI）
 export const OAUTH_CONFIG = {
@@ -223,33 +225,50 @@ export async function fetchInsecureJson(
         ...(options.headers || {}),
     }
 
-    try {
-        const response = await fetch(url, {
+    const { hostname, pathname, search, port, protocol } = new URL(url)
+
+    return new Promise((resolve, reject) => {
+        const reqOptions: https.RequestOptions = {
+            hostname,
+            port: port || (protocol === "https:" ? 443 : 80),
+            path: `${pathname}${search}`,
             method,
             headers,
-            body: options.body,
+            rejectUnauthorized: false,
+        }
+
+        const req = https.request(reqOptions, (res) => {
+            let body = ""
+            res.on("data", (chunk) => {
+                body += chunk
+            })
+            res.on("end", () => {
+                let data: any = null
+                if (body) {
+                    try {
+                        data = JSON.parse(body)
+                    } catch {
+                        data = null
+                    }
+                }
+                resolve({
+                    status: res.statusCode || 0,
+                    data,
+                    text: body,
+                })
+            })
         })
 
-        const text = await response.text()
-        let data: any = null
+        req.on("error", (error) => {
+            consola.error(`fetchInsecureJson error for ${url}:`, error)
+            reject(error)
+        })
 
-        if (text) {
-            try {
-                data = JSON.parse(text)
-            } catch {
-                data = null
-            }
+        if (options.body) {
+            req.write(options.body)
         }
-
-        return {
-            status: response.status,
-            data,
-            text,
-        }
-    } catch (error) {
-        consola.error(`fetchInsecureJson error for ${url}:`, error)
-        throw error
-    }
+        req.end()
+    })
 }
 
 /**
