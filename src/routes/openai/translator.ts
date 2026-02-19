@@ -24,12 +24,14 @@ export function translateMessages(messages: OpenAIMessage[]): ClaudeMessage[] {
         }
 
         if (msg.role === "tool") {
+            // For tool messages, ensure content is a string
+            const toolContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content || "")
             return {
                 role: "user" as const,
                 content: [{
                     type: "tool_result" as const,
                     tool_use_id: msg.tool_call_id!,
-                    content: msg.content || "",
+                    content: toolContent,
                 }],
             }
         }
@@ -42,10 +44,57 @@ export function translateMessages(messages: OpenAIMessage[]): ClaudeMessage[] {
             claudeRole = "assistant"
         }
 
-        return {
-            role: claudeRole,
-            content: msg.content || "",
-        } as ClaudeMessage
+        // Handle complex content (text + images) for OpenAI format
+        if (typeof msg.content === 'object') {
+            // This is an array of content blocks (OpenAI format with images)
+            const contentBlocks: any[] = (msg.content as any).map((block: any) => {
+                if (block.type === 'text') {
+                    return {
+                        type: 'text' as const,
+                        text: block.text || ''
+                    }
+                } else if (block.type === 'image_url') {
+                    // Extract base64 data from image URL
+                    const imageUrl = block.image_url?.url || block.url
+                    if (imageUrl && imageUrl.startsWith('data:')) {
+                        // Extract MIME type and base64 data
+                        const matches = imageUrl.match(/^data:(.+?);base64,(.+)$/)
+                        if (matches) {
+                            const mimeType = matches[1]
+                            const base64Data = matches[2]
+                            return {
+                                type: 'image' as const,
+                                source: {
+                                    type: 'base64' as const,
+                                    media_type: mimeType,
+                                    data: base64Data
+                                }
+                            }
+                        }
+                    }
+                    // If we cannot parse the image, treat as text
+                    return {
+                        type: 'text' as const,
+                        text: `[Image: ${imageUrl}]`
+                    }
+                }
+                return {
+                    type: 'text' as const,
+                    text: JSON.stringify(block)
+                }
+            })
+            
+            return {
+                role: claudeRole,
+                content: contentBlocks
+            } as ClaudeMessage
+        } else {
+            // Simple string content
+            return {
+                role: claudeRole,
+                content: msg.content || "",
+            } as ClaudeMessage
+        }
     })
 }
 

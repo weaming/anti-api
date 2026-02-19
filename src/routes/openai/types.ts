@@ -15,9 +15,17 @@ export interface OpenAIChatCompletionRequest {
 
 export interface OpenAIMessage {
     role: "system" | "user" | "assistant" | "tool" | "developer"
-    content: string | null
+    content: string | null | OpenAIContentBlock[]
     tool_calls?: OpenAIToolCall[]
     tool_call_id?: string
+}
+
+export interface OpenAIContentBlock {
+    type: "text" | "image_url"
+    text?: string
+    image_url?: {
+        url: string
+    }
 }
 
 export interface OpenAITool {

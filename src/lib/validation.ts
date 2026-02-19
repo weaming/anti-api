@@ -56,6 +56,39 @@ export function validateChatRequest(payload: any): ValidationResult {
         if (!validRoles.includes(msg.role)) {
             return { valid: false, error: `Invalid role "${msg.role}" at index ${i}` }
         }
+        
+        // Validate content - can be string or array of content blocks
+        if (msg.content !== null && msg.content !== undefined) {
+            if (typeof msg.content === 'string') {
+                // Valid string content
+            } else if (Array.isArray(msg.content)) {
+                // Validate array of content blocks
+                for (let j = 0; j < msg.content.length; j++) {
+                    const block = msg.content[j]
+                    if (!block || typeof block !== "object") {
+                        return { valid: false, error: `Message content block at index ${i},${j} must be an object` }
+                    }
+                    if (!block.type || typeof block.type !== "string") {
+                        return { valid: false, error: `Message content block at index ${i},${j} must have a type` }
+                    }
+                    
+                    if (block.type === 'text') {
+                        if (block.text !== undefined && typeof block.text !== 'string') {
+                            return { valid: false, error: `Text content block at index ${i},${j} must have text as string` }
+                        }
+                    } else if (block.type === 'image_url') {
+                        if (!block.image_url || typeof block.image_url !== 'object') {
+                            return { valid: false, error: `Image content block at index ${i},${j} must have image_url object` }
+                        }
+                        if (!block.image_url.url || typeof block.image_url.url !== 'string') {
+                            return { valid: false, error: `Image content block at index ${i},${j} must have image_url.url as string` }
+                        }
+                    }
+                }
+            } else {
+                return { valid: false, error: `Message content at index ${i} must be a string or array of content blocks` }
+            }
+        }
     }
 
     // Optional fields validation
