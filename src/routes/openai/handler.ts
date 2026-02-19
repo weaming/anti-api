@@ -54,6 +54,14 @@ export async function handleChatCompletion(c: Context): Promise<Response> {
                 tools,
                 toolChoice,
                 maxTokens: payload.max_tokens || 4096,
+                temperature: payload.temperature,
+                topP: payload.top_p,
+                topK: payload.top_k,
+                presencePenalty: payload.presence_penalty,
+                frequencyPenalty: payload.frequency_penalty,
+                stop: payload.stop,
+                seed: payload.seed,
+                responseFormat: payload.response_format,
             })
         } catch (error) {
             if (error instanceof RoutingError) {
@@ -134,6 +142,14 @@ async function handleStreamCompletion(
                 tools,
                 toolChoice,
                 maxTokens: payload.max_tokens || 4096,
+                temperature: payload.temperature,
+                topP: payload.top_p,
+                topK: payload.top_k,
+                presencePenalty: payload.presence_penalty,
+                frequencyPenalty: payload.frequency_penalty,
+                stop: payload.stop,
+                seed: payload.seed,
+                responseFormat: payload.response_format,
             })
 
             let sentRole = false

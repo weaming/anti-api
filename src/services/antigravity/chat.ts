@@ -160,6 +160,16 @@ export interface ChatRequest {
         name?: string
     }
     maxTokens?: number
+    temperature?: number
+    topP?: number
+    topK?: number
+    presencePenalty?: number
+    frequencyPenalty?: number
+    stop?: string | string[]
+    seed?: number
+    responseFormat?: {
+        type: "text" | "json_object"
+    }
 }
 
 export interface ContentBlock {
@@ -432,7 +442,18 @@ function claudeToAntigravity(
     model: string,
     messages: ClaudeMessage[],
     tools?: ClaudeTool[],
-    toolChoice?: ChatRequest["toolChoice"]
+    toolChoice?: ChatRequest["toolChoice"],
+    maxTokens?: number,
+    temperature?: number,
+    topP?: number,
+    topK?: number,
+    presencePenalty?: number,
+    frequencyPenalty?: number,
+    stop?: string | string[],
+    seed?: number,
+    responseFormat?: {
+        type: "text" | "json_object"
+    }
 ): any {
     const toolIdToName = new Map<string, string>()
     const contents = messages.map((msg) => ({
@@ -449,8 +470,11 @@ function claudeToAntigravity(
         safetySettings: buildSafetySettings(),
         systemInstruction: buildSystemInstruction(),
         generationConfig: {
-            maxOutputTokens: 64000,
-            stopSequences: ["\n\nHuman:", "[DONE]"],
+            maxOutputTokens: maxTokens || 64000,
+            stopSequences: stop ? (typeof stop === 'string' ? [stop] : stop) : ["\n\nHuman:", "[DONE]"],
+            temperature: temperature,
+            topP: topP,
+            topK: topK,
         },
     }
 
@@ -1066,7 +1090,16 @@ export async function createChatCompletionWithOptions(
             getAntigravityModelName(request.model),
             request.messages,
             request.tools,
-            request.toolChoice
+            request.toolChoice,
+            request.maxTokens,
+            request.temperature,
+            request.topP,
+            request.topK,
+            request.presencePenalty,
+            request.frequencyPenalty,
+            request.stop,
+            request.seed,
+            request.responseFormat
         )
 
         if (projectId) antigravityRequest.project = projectId
@@ -1146,7 +1179,16 @@ export async function* createChatCompletionStreamWithOptions(
             getAntigravityModelName(request.model),
             request.messages,
             request.tools,
-            request.toolChoice
+            request.toolChoice,
+            request.maxTokens,
+            request.temperature,
+            request.topP,
+            request.topK,
+            request.presencePenalty,
+            request.frequencyPenalty,
+            request.stop,
+            request.seed,
+            request.responseFormat
         )
 
         if (projectId && projectId !== "unknown") antigravityRequest.project = projectId

@@ -42,6 +42,10 @@ export function translateMessages(messages: OpenAIMessage[]): ClaudeMessage[] {
         let claudeRole: "user" | "assistant" = "user"
         if (msg.role === "assistant") {
             claudeRole = "assistant"
+        } else if (msg.role === "system") {
+            // Instead of just converting to user role, preserve as system instruction for internal use
+            // But since Claude doesn't support system role, we'll still map to "user" with special handling
+            claudeRole = "user"
         }
 
         // Handle complex content (text + images) for OpenAI format

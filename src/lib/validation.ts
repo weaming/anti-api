@@ -106,6 +106,58 @@ export function validateChatRequest(payload: any): ValidationResult {
             return { valid: false, error: "temperature must be a number between 0 and 2" }
         }
     }
+    
+    if (payload.top_p !== undefined) {
+        if (typeof payload.top_p !== "number" || payload.top_p < 0 || payload.top_p > 1) {
+            return { valid: false, error: "top_p must be a number between 0 and 1" }
+        }
+    }
+    
+    if (payload.top_k !== undefined) {
+        if (typeof payload.top_k !== "number" || payload.top_k < 0) {
+            return { valid: false, error: "top_k must be a non-negative number" }
+        }
+    }
+    
+    if (payload.presence_penalty !== undefined) {
+        if (typeof payload.presence_penalty !== "number" || payload.presence_penalty < -2 || payload.presence_penalty > 2) {
+            return { valid: false, error: "presence_penalty must be a number between -2 and 2" }
+        }
+    }
+    
+    if (payload.frequency_penalty !== undefined) {
+        if (typeof payload.frequency_penalty !== "number" || payload.frequency_penalty < -2 || payload.frequency_penalty > 2) {
+            return { valid: false, error: "frequency_penalty must be a number between -2 and 2" }
+        }
+    }
+    
+    if (payload.stop !== undefined) {
+        if (typeof payload.stop !== "string" && !Array.isArray(payload.stop)) {
+            return { valid: false, error: "stop must be a string or array of strings" }
+        }
+        if (Array.isArray(payload.stop)) {
+            for (let i = 0; i < payload.stop.length; i++) {
+                if (typeof payload.stop[i] !== "string") {
+                    return { valid: false, error: `stop[${i}] must be a string` }
+                }
+            }
+        }
+    }
+    
+    if (payload.seed !== undefined) {
+        if (typeof payload.seed !== "number" || payload.seed < 0 || !Number.isInteger(payload.seed)) {
+            return { valid: false, error: "seed must be a non-negative integer" }
+        }
+    }
+
+    if (payload.response_format !== undefined) {
+        if (typeof payload.response_format !== "object" || payload.response_format === null) {
+            return { valid: false, error: "response_format must be an object" }
+        }
+        if (payload.response_format.type !== "text" && payload.response_format.type !== "json_object") {
+            return { valid: false, error: "response_format.type must be 'text' or 'json_object'" }
+        }
+    }
 
     if (payload.stream !== undefined && typeof payload.stream !== "boolean") {
         return { valid: false, error: "stream must be a boolean" }

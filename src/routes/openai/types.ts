@@ -9,6 +9,14 @@ export interface OpenAIChatCompletionRequest {
     max_tokens?: number
     temperature?: number
     top_p?: number
+    top_k?: number
+    presence_penalty?: number
+    frequency_penalty?: number
+    stop?: string | string[]
+    seed?: number
+    response_format?: {
+        type: "text" | "json_object"
+    }
     tools?: OpenAITool[]
     tool_choice?: "none" | "auto" | "required" | { type: "function"; function: { name: string } }
 }

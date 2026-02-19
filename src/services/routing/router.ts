@@ -23,6 +23,16 @@ export interface RoutedRequest {
     tools?: ClaudeTool[]
     toolChoice?: any
     maxTokens?: number
+    temperature?: number
+    topP?: number
+    topK?: number
+    presencePenalty?: number
+    frequencyPenalty?: number
+    stop?: string | string[]
+    seed?: number
+    responseFormat?: {
+        type: "text" | "json_object"
+    }
 }
 
 export function resolveRoutingEntries(config: RoutingConfig, model: string): AccountRoutingEntry[] {
