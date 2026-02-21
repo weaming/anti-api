@@ -24,14 +24,12 @@ export interface DiscoveredModel {
 
 /** 已知模型 ID → 友好显示名映射 */
 const MODEL_DISPLAY_NAMES: Record<string, string> = {
-    // Claude 系列
-    "claude-sonnet-4-5": "Claude Sonnet 4.5",
-    "claude-sonnet-4-5-thinking": "Claude Sonnet 4.5 (Thinking)",
+    // Claude 系列（仅包含上游 quota API 返回的模型）
     "claude-sonnet-4-6": "Claude Sonnet 4.6",
-    "claude-opus-4-5-thinking": "Claude Opus 4.5 (Thinking)",
     "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
-    // Gemini 3 系列（仅保留已验证可用的模型）  
-    "gemini-3-pro-image": "Gemini 3 Pro (Image)",
+    // Gemini 3 系列
+    "gemini-3-pro-high": "Gemini 3 Pro (High)",
+    "gemini-3-pro-low": "Gemini 3 Pro (Low)",
     "gemini-3-flash": "Gemini 3 Flash",
     // Gemini 3.1 系列
     "gemini-3.1-pro-high": "Gemini 3.1 Pro (High)",
@@ -221,8 +219,12 @@ export { shouldExcludeModel, resolveDisplayName }
  * 初始化：启动时立即刷新一次
  */
 export function initModelDiscovery(): void {
-    // 延迟 3 秒执行首次刷新，等待 authStore 加载完成
-    setTimeout(() => {
+    // 🆕 改进：立即刷新一次，然后在后台定期刷新
+    // 这样可以确保启动后尽快获取上游模型列表
+    doRefresh().catch(() => {})
+    
+    // 每 5 分钟刷新一次
+    setInterval(() => {
         doRefresh().catch(() => {})
-    }, 3000)
+    }, 5 * 60 * 1000)
 }

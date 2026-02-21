@@ -18,20 +18,21 @@ export function getProviderModels(provider: AuthProvider): ProviderModelOption[]
 }
 
 export function getOfficialModelProviders(modelId: string): string[] {
-    // 优先检查静态列表
+    // 🆕 严格验证：只允许动态发现的模型（从上游quota API获取）
+    // 这样可以确保只有上游实际支持的模型才能使用
+    if (isDiscoveredModel(modelId)) return ["antigravity"]
+    
+    // 兜底：检查静态列表（用于启动时 quota 未刷新的情况）
     const isStatic = AVAILABLE_MODELS.some(m => m.id === modelId)
     if (isStatic) return ["antigravity"]
-
-    // 检查动态发现的模型
-    if (isDiscoveredModel(modelId)) return ["antigravity"]
 
     return []
 }
 
 export function isOfficialModel(modelId: string): boolean {
-    // 优先检查静态列表
-    if (AVAILABLE_MODELS.some(m => m.id === modelId)) return true
-
-    // 检查动态发现的模型
-    return isDiscoveredModel(modelId)
+    // 🆕 严格验证：优先检查动态发现的模型
+    if (isDiscoveredModel(modelId)) return true
+    
+    // 兜底：检查静态列表
+    return AVAILABLE_MODELS.some(m => m.id === modelId)
 }

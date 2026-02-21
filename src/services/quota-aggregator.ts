@@ -226,13 +226,11 @@ function buildAntigravityBars(models: Record<string, ModelInfo>): AccountBar[] {
     // 按模型分类显示配额 - 每个模型独立显示
     const bars: AccountBar[] = []
 
-    // Claude 系列
-    const claudeModels = [
-        "claude-sonnet-4-5",
-        "claude-sonnet-4-5-thinking",
-        "claude-opus-4-5-thinking",
-        "claude-opus-4-6-thinking",
-    ]
+    // Claude 系列 - 动态展示所有上游返回的模型
+    const claudeModels = Object.keys(models)
+        .filter(k => k.startsWith("claude-"))
+        .sort()
+    
     for (const id of claudeModels) {
         const info = models[id]
         if (info) {
@@ -245,11 +243,11 @@ function buildAntigravityBars(models: Record<string, ModelInfo>): AccountBar[] {
         }
     }
 
-    // GPT-OSS 系列
-    const gptModels = [
-        "gpt-oss-120b",
-        "gpt-oss-120b-medium",
-    ]
+    // GPT-OSS 系列 - 动态展示所有上游返回的模型
+    const gptModels = Object.keys(models)
+        .filter(k => k.startsWith("gpt-"))
+        .sort()
+    
     for (const id of gptModels) {
         const info = models[id]
         if (info) {
@@ -271,6 +269,7 @@ function buildAntigravityBars(models: Record<string, ModelInfo>): AccountBar[] {
         "gemini-2.5-flash-lite",
         "gemini-3-pro-high",    // 已废弃
         "gemini-3-pro-low",     // 已废弃
+        "gemini-3-pro-image",   // 返回空响应，不稳定
         "gemini-3.1-flash",     // 上游不支持
     ]
     

@@ -62,8 +62,8 @@ describe("Model Discovery - Filter Logic", () => {
             const allModels = getAllKnownModelIds()
 
             // 静态列表中的模型
-            expect(allModels).toContain("claude-sonnet-4-5")
             expect(allModels).toContain("claude-sonnet-4-6")
+            expect(allModels).toContain("claude-opus-4-6-thinking")
             expect(allModels).toContain("gemini-3-flash")
             expect(allModels).toContain("gemini-3.1-pro-low")
             expect(allModels).toContain("gpt-oss-120b-medium")
@@ -72,7 +72,6 @@ describe("Model Discovery - Filter Logic", () => {
             const geminiModels = allModels.filter(m => m.startsWith("gemini-"))
             expect(geminiModels.length).toBeGreaterThan(0)
             console.log(`Total known models: ${allModels.length}`)
-            console.log(`Gemini models: ${geminiModels.join(", ")}`)
         })
     })
 })
@@ -90,11 +89,10 @@ describe("Model Discovery - Model Availability Test", () => {
         }
     })
 
-    // 所有需要测试的模型（仅包含上游支持的模型）
+    // 所有需要测试的模型（仅包含上游 quota API 返回的模型）
     const CLAUDE_MODELS_TO_TEST = [
-        "claude-sonnet-4-5",
-        "claude-sonnet-4-5-thinking",
-        "claude-opus-4-5-thinking",
+        "claude-sonnet-4-6",
+        "claude-opus-4-6-thinking",
     ]
 
     const GPT_MODELS_TO_TEST = [
@@ -105,10 +103,6 @@ describe("Model Discovery - Model Availability Test", () => {
         "gemini-3-flash",
         "gemini-3.1-pro-high",
         "gemini-3.1-pro-low",
-    ]
-
-    const IMAGE_MODELS_TO_TEST = [
-        "gemini-3-pro-image",    // 需要图片输入
     ]
 
     it("should have test accounts available", () => {
@@ -280,62 +274,6 @@ describe("Model Discovery - Model Availability Test", () => {
                     }
                 } else if (response.status === 503) {
                     console.log(`⚠ ${modelId}: 503 服务不可用`)
-                } else {
-                    const errorText = await response.text()
-                    console.log(`⚠ ${modelId}: ${response.status} - ${errorText.slice(0, 100)}`)
-                }
-            } catch (error: any) {
-                console.log(`⚠ ${modelId}: ${error.message}`)
-            }
-        })
-    }
-
-    // 对需要图片输入的模型进行测试（15秒超时）
-    for (const modelId of IMAGE_MODELS_TO_TEST) {
-        it(`image model "${modelId}" should work with image input`, { timeout: 15000 }, async () => {
-            if (testAccounts.length === 0) {
-                console.log("⊘ No test accounts available, skipping")
-                return
-            }
-
-            try {
-                // 使用简单的base64图片（1x1红色像素）
-                const response = await fetch(`${API_BASE}/v1/chat/completions`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${API_KEY}`,
-                    },
-                    body: JSON.stringify({
-                        model: modelId,
-                        messages: [{
-                            role: "user",
-                            content: [
-                                { type: "text", text: "描述这张图片" },
-                                { 
-                                    type: "image_url",
-                                    image_url: {
-                                        url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
-                                    }
-                                }
-                            ]
-                        }],
-                        max_tokens: 100,
-                        stream: false,
-                    }),
-                })
-
-                if (response.status === 200) {
-                    const data = await response.json()
-                    const content = data.choices?.[0]?.message?.content || ""
-                    expect(content.length).toBeGreaterThan(0)
-                    console.log(`✓ ${modelId}: ${content.slice(0, 50)}...`)
-                } else if (response.status === 400 || response.status === 404) {
-                    const errorText = await response.text()
-                    console.log(`⊘ ${modelId}: 模型不支持 - ${errorText.slice(0, 100)}`)
-                } else if (response.status === 429) {
-                    const errorText = await response.text()
-                    console.log(`⚠ ${modelId}: 429 限流 - ${errorText.slice(0, 100)}`)
                 } else {
                     const errorText = await response.text()
                     console.log(`⚠ ${modelId}: ${response.status} - ${errorText.slice(0, 100)}`)
