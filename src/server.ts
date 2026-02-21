@@ -23,6 +23,7 @@ import { loadSettings, saveSettings } from "./services/settings"
 import { pingAccount } from "./services/ping"
 import { summarizeUpstreamError, UpstreamError } from "./lib/error"
 import { authStore } from "./services/auth/store"
+import { getDiscoveredModels, initModelDiscovery, refreshDiscoveredModels } from "./services/model-discovery"
 
 import { getRequestLogContext } from "./lib/logger"
 import { initLogCapture, setLogCaptureEnabled } from "./lib/log-buffer"
@@ -31,6 +32,7 @@ export const server = new Hono()
 
 initLogCapture()
 setLogCaptureEnabled(loadSettings().captureLogs)
+initModelDiscovery()
 consola.level = 0
 
 // 中间件 - 请求日志 (只记录重要请求)
@@ -133,12 +135,32 @@ server.route("/v1beta/messages", messageRoutes)
 // 无前缀版本 for GUI tools
 server.route("/messages", messageRoutes)
 
-// 模型列表处理函数 - 兼容 OpenAI 和 Anthropic 格式
+// 模型列表处理函数 - 合并静态列表 + 动态发现的上游模型
 const modelsHandler = (c: any) => {
     const now = new Date().toISOString()
 
-    // 仅列出配置好的 Antigravity 模型
-    const models: Array<{ id: string; name?: string; owned_by?: string }> = AVAILABLE_MODELS
+    // 合并静态 AVAILABLE_MODELS 和动态发现的模型
+    const staticModels = AVAILABLE_MODELS.map(m => ({
+        id: m.id,
+        name: m.name,
+        owned_by: "antigravity",
+        source: "static" as const,
+    }))
+
+    const discovered = getDiscoveredModels()
+    const staticIds = new Set(staticModels.map(m => m.id))
+
+    // 动态发现的新模型（不在静态列表中的）
+    const dynamicModels = discovered
+        .filter(m => !staticIds.has(m.id))
+        .map(m => ({
+            id: m.id,
+            name: m.displayName,
+            owned_by: "antigravity",
+            source: "discovered" as const,
+        }))
+
+    const models = [...staticModels, ...dynamicModels]
 
     return c.json({
         object: "list",
@@ -150,6 +172,8 @@ const modelsHandler = (c: any) => {
             created: Date.now(),     // OpenAI format (unix timestamp)
             owned_by: m.owned_by || "antigravity",
             display_name: m.name || m.id,
+            // 标识模型来源：static=预置, discovered=动态发现
+            ...(m.source === "discovered" ? { _source: "discovered" } : {}),
         })),
         has_more: false,
         first_id: models[0]?.id,

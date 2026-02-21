@@ -1,5 +1,6 @@
 import { AVAILABLE_MODELS } from "~/lib/config"
 import type { AuthProvider } from "~/services/auth/types"
+import { isDiscoveredModel, getAllKnownModelIds } from "~/services/model-discovery"
 
 export interface ProviderModelOption {
     id: string
@@ -17,12 +18,20 @@ export function getProviderModels(provider: AuthProvider): ProviderModelOption[]
 }
 
 export function getOfficialModelProviders(modelId: string): string[] {
-    const isAntigravity = AVAILABLE_MODELS.some(m => m.id === modelId)
-    if (isAntigravity) return ["antigravity"]
+    // 优先检查静态列表
+    const isStatic = AVAILABLE_MODELS.some(m => m.id === modelId)
+    if (isStatic) return ["antigravity"]
+
+    // 检查动态发现的模型
+    if (isDiscoveredModel(modelId)) return ["antigravity"]
+
     return []
 }
 
 export function isOfficialModel(modelId: string): boolean {
-    return AVAILABLE_MODELS.some(m => m.id === modelId)
-}
+    // 优先检查静态列表
+    if (AVAILABLE_MODELS.some(m => m.id === modelId)) return true
 
+    // 检查动态发现的模型
+    return isDiscoveredModel(modelId)
+}

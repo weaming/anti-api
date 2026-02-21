@@ -35,8 +35,24 @@ export function advanceAccountCursor(state: AccountStickyState, entryCount: numb
 
 const routerRateLimits = new Map<string, number>()
 
-export function isRouterRateLimited(provider: string, accountId: string): boolean {
-    const key = `${provider}:${accountId}`
+/**
+ * 获取限流 key
+ * 支持账户级别和账户+模型级别的限流
+ */
+function getRateLimitKey(provider: string, accountId: string, modelId?: string): string {
+    if (modelId) {
+        return `${provider}:${accountId}:${modelId}`
+    }
+    return `${provider}:${accountId}`
+}
+
+/**
+ * 检查账户是否被限流
+ * 如果指定了 modelId，则只检查该模型是否被限流
+ * 否则检查账户级别的限流
+ */
+export function isRouterRateLimited(provider: string, accountId: string, modelId?: string): boolean {
+    const key = getRateLimitKey(provider, accountId, modelId)
     const until = routerRateLimits.get(key)
     if (!until) return false
     if (Date.now() > until) {
@@ -46,7 +62,20 @@ export function isRouterRateLimited(provider: string, accountId: string): boolea
     return true
 }
 
-export function markRouterRateLimited(provider: string, accountId: string, durationMs: number) {
-    const key = `${provider}:${accountId}`
+/**
+ * 标记账户/模型组合为限流
+ * 如果指定了 modelId，则只限流该模型
+ * 否则限流整个账户
+ */
+export function markRouterRateLimited(provider: string, accountId: string, durationMs: number, modelId?: string) {
+    const key = getRateLimitKey(provider, accountId, modelId)
     routerRateLimits.set(key, Date.now() + durationMs)
+}
+
+/**
+ * 清除指定账户/模型的限流状态
+ */
+export function clearRouterRateLimit(provider: string, accountId: string, modelId?: string) {
+    const key = getRateLimitKey(provider, accountId, modelId)
+    routerRateLimits.delete(key)
 }

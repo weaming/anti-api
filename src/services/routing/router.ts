@@ -1,5 +1,5 @@
 import type { ClaudeMessage, ClaudeTool } from "~/lib/translator"
-import { UpstreamError } from "~/lib/error"
+import { UpstreamError, summarizeUpstream429 } from "~/lib/error"
 import { createChatCompletionWithOptions, createChatCompletionStreamWithOptions, type ChatResponse } from "~/services/antigravity/chat"
 import { loadRoutingConfig, type AccountRoutingEntry, type RoutingConfig } from "./config"
 import { accountManager } from "~/services/antigravity/account-manager"
@@ -7,6 +7,30 @@ import { authStore } from "~/services/auth/store"
 import { getOfficialModelProviders, isOfficialModel } from "./models"
 import { getAccountStickyState, advanceAccountCursor, isRouterRateLimited, markRouterRateLimited, shouldFallbackOnUpstream } from "./rate-limit"
 import { setRequestLogContext, getAccountDisplay } from "~/lib/logger"
+
+/**
+ * 根据 429 错误类型决定路由层锁定时间
+ * - 配额耗尽：60 秒（需要等待较长时间）
+ * - 速率限制：5 秒（chat.ts 内部已经重试过，给一个短暂冷却）
+ * - 其他：10 秒
+ */
+function getRouterLockDurationMs(error: UpstreamError): number {
+    if (error.status !== 429) return 10000
+    
+    const summary = summarizeUpstream429(error)
+    switch (summary.reason) {
+        case "quota_exhausted":
+            return 60000 // 配额耗尽，锁定 60 秒
+        case "rate_limit_exceeded":
+            return 5000  // 速率限制，短暂锁定 5 秒
+        case "model_capacity_exhausted":
+            return 8000  // 模型容量不足，锁定 8 秒
+        case "resource_exhausted":
+            return 10000 // 资源耗尽，锁定 10 秒
+        default:
+            return 10000 // 未知 429，锁定 10 秒
+    }
+}
 
 export { isOfficialModel }
 
@@ -159,14 +183,17 @@ export async function createRoutedCompletion(request: RoutedRequest): Promise<Ch
         const index = (startIndex + offset) % entries.length
         const entry = entries[index]
 
-        // Rate Limit 检查
+        // Rate Limit 检查：使用账户+模型组合进行限流检测
         if (entry.provider === "antigravity") {
-            if (accountManager.isAccountRateLimited(entry.accountId) || isRouterRateLimited("antigravity", entry.accountId)) {
+            // 检查账户级别和账户+模型级别的限流
+            const isModelLimited = isRouterRateLimited("antigravity", entry.accountId, request.model)
+            const isAccountLimited = accountManager.isAccountRateLimited(entry.accountId, request.model)
+            if (isModelLimited || isAccountLimited) {
                 if (entries.length > 1) continue
             }
             if (entries.length > 1 && accountManager.isAccountInFlight(entry.accountId)) continue
         } else {
-            if (isRouterRateLimited(entry.provider, entry.accountId)) continue
+            if (isRouterRateLimited(entry.provider, entry.accountId, request.model)) continue
         }
 
         try {
@@ -180,8 +207,10 @@ export async function createRoutedCompletion(request: RoutedRequest): Promise<Ch
 
             if (error instanceof UpstreamError && shouldFallbackOnUpstream(error)) {
                 if (entry.provider === "antigravity") {
-                    accountManager.markRateLimitedFromError(entry.accountId, error.status, error.body, error.retryAfter, request.model)
-                    markRouterRateLimited("antigravity", entry.accountId, 60000)
+                    const lockDuration = getRouterLockDurationMs(error)
+                    accountManager.markRateLimitedFromError(entry.accountId, error.status, error.body, error.retryAfter, request.model, { maxDurationMs: lockDuration })
+                    // 使用账户+模型组合进行限流标记
+                    markRouterRateLimited("antigravity", entry.accountId, lockDuration, request.model)
                 }
                 advanceAccountCursor(state, entries.length, index)
                 continue
@@ -208,12 +237,15 @@ export async function* createRoutedCompletionStream(request: RoutedRequest): Asy
         const entry = entries[index]
 
         if (entry.provider === "antigravity") {
-            if (accountManager.isAccountRateLimited(entry.accountId) || isRouterRateLimited("antigravity", entry.accountId)) {
+            // 检查账户级别和账户+模型级别的限流
+            const isModelLimited = isRouterRateLimited("antigravity", entry.accountId, request.model)
+            const isAccountLimited = accountManager.isAccountRateLimited(entry.accountId, request.model)
+            if (isModelLimited || isAccountLimited) {
                 if (entries.length > 1) continue
             }
             if (entries.length > 1 && accountManager.isAccountInFlight(entry.accountId)) continue
         } else {
-            if (isRouterRateLimited(entry.provider, entry.accountId)) continue
+            if (isRouterRateLimited(entry.provider, entry.accountId, request.model)) continue
         }
 
         try {
@@ -230,8 +262,10 @@ export async function* createRoutedCompletionStream(request: RoutedRequest): Asy
 
             if (error instanceof UpstreamError && shouldFallbackOnUpstream(error)) {
                 if (entry.provider === "antigravity") {
-                    accountManager.markRateLimitedFromError(entry.accountId, error.status, error.body, error.retryAfter, request.model)
-                    markRouterRateLimited("antigravity", entry.accountId, 60000)
+                    const lockDuration = getRouterLockDurationMs(error)
+                    accountManager.markRateLimitedFromError(entry.accountId, error.status, error.body, error.retryAfter, request.model, { maxDurationMs: lockDuration })
+                    // 使用账户+模型组合进行限流标记
+                    markRouterRateLimited("antigravity", entry.accountId, lockDuration, request.model)
                 }
                 advanceAccountCursor(state, entries.length, index)
                 continue

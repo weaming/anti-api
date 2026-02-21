@@ -223,20 +223,86 @@ async function fetchAntigravityModelsForAccount(
 }
 
 function buildAntigravityBars(models: Record<string, ModelInfo>): AccountBar[] {
-    const claudeGptIds = [
+    // 按模型分类显示配额 - 每个模型独立显示
+    const bars: AccountBar[] = []
+
+    // Claude 系列
+    const claudeModels = [
         "claude-sonnet-4-5",
         "claude-sonnet-4-5-thinking",
         "claude-opus-4-5-thinking",
-        "gpt-oss-120b",
+        "claude-opus-4-6-thinking",
     ]
-    const gproIds = ["gemini-3-pro-low", "gemini-3-pro-high"]
-    const gflashIds = ["gemini-3-flash"]
+    for (const id of claudeModels) {
+        const info = models[id]
+        if (info) {
+            bars.push({
+                key: id,
+                label: id.replace(/-/g, " "),
+                percentage: Math.round((info.remainingFraction ?? 0) * 100),
+                resetTime: info.resetTime,
+            })
+        }
+    }
 
-    return [
-        buildMergedBar("claude_gpt", "claude&gpt", models, claudeGptIds),
-        buildMergedBar("gpro", "gpro", models, gproIds),
-        buildMergedBar("gflash", "gflash", models, gflashIds),
+    // GPT-OSS 系列
+    const gptModels = [
+        "gpt-oss-120b",
+        "gpt-oss-120b-medium",
     ]
+    for (const id of gptModels) {
+        const info = models[id]
+        if (info) {
+            bars.push({
+                key: id,
+                label: id.replace(/-/g, " "),
+                percentage: Math.round((info.remainingFraction ?? 0) * 100),
+                resetTime: info.resetTime,
+            })
+        }
+    }
+
+    // Gemini 系列 - 按版本分组显示
+    // 🆕 排除不支持的模型（即使上游返回）
+    const EXCLUDED_MODELS = [
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash-thinking",
+        "gemini-2.5-flash-lite",
+        "gemini-3-pro-high",    // 已废弃
+        "gemini-3-pro-low",     // 已废弃
+        "gemini-3.1-flash",     // 上游不支持
+    ]
+    
+    const geminiModels = Object.keys(models)
+        .filter(k => k.startsWith("gemini-"))
+        .filter(k => !EXCLUDED_MODELS.includes(k))
+        .sort()
+
+    for (const id of geminiModels) {
+        const info = models[id]
+        if (info) {
+            // 友好的显示名称
+            const label = id
+                .replace("gemini-", "Gemini ")
+                .replace(/-/g, " ")
+                .replace("pro high", "Pro (High)")
+                .replace("pro low", "Pro (Low)")
+                .replace("flash", "Flash")
+                .replace("thinking", "(Thinking)")
+                .replace("lite", "Lite")
+                .replace("image", "(Image)")
+
+            bars.push({
+                key: id,
+                label,
+                percentage: Math.round((info.remainingFraction ?? 0) * 100),
+                resetTime: info.resetTime,
+            })
+        }
+    }
+
+    return bars
 }
 
 function buildMergedBar(
@@ -283,4 +349,3 @@ function isAuthError(error: unknown): boolean {
     if (message.toLowerCase().includes("invalid_grant")) return true
     return false
 }
-

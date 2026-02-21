@@ -194,7 +194,8 @@ export async function forwardError(c: Context, error: unknown) {
                     message: summary.message,
                     provider: error.provider,
                     ...(summary.reason ? { reason: summary.reason } : {}),
-                    ...(error.status === 429 && error.body ? { detail: error.body.slice(0, 800) } : {}),
+                    // 总是返回上游的错误详情
+                    ...(error.body ? { detail: error.body.slice(0, 1000) } : {}),
                 },
             },
             error.status as ContentfulStatusCode,

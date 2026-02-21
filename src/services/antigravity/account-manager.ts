@@ -155,6 +155,8 @@ class AccountManager {
     private inFlightAccounts = new Set<string>()
     private accountLocks = new Map<string, Promise<void>>()
     private lastCallByAccount = new Map<string, number>()
+    // 🆕 模型级别的限流状态：key = "accountId:modelId", value = rateLimitedUntil timestamp
+    private modelRateLimits = new Map<string, number>()
 
     constructor() {
         this.dataFile = path.join(getDataDir(), "accounts.json")
@@ -408,10 +410,19 @@ class AccountManager {
 
     /**
      * 标记账号为限流状态
+     * 🆕 改进：支持可选的模型 ID，优先使用模型级别限流
      */
-    markRateLimited(accountId: string, durationMs: number = 60000): void {
+    markRateLimited(accountId: string, durationMs: number = 60000, modelId?: string): void {
         const account = this.accounts.get(accountId)
-        if (account) {
+        if (!account) return
+        
+        if (modelId) {
+            // 有模型 ID：使用模型级别限流，不影响其他模型
+            const modelKey = `${accountId}:${modelId}`
+            this.modelRateLimits.set(modelKey, Date.now() + durationMs)
+            consola.warn(`Account ${account.email} model ${modelId} rate limited for ${durationMs / 1000}s`)
+        } else {
+            // 无模型 ID：使用账户级别限流
             account.rateLimitedUntil = Date.now() + durationMs
             account.consecutiveFailures++
             consola.warn(`Account ${account.email} rate limited for ${durationMs / 1000}s (failures: ${account.consecutiveFailures})`)
@@ -420,6 +431,7 @@ class AccountManager {
 
     /**
      * 根据错误信息标记账号限流
+     * 🆕 改进：非配额耗尽的 429 使用模型级别限流，不影响其他模型
      */
     async markRateLimitedFromError(
         accountId: string,
@@ -463,10 +475,27 @@ class AccountManager {
             rateLimitedUntil = Date.now() + durationMs
         }
 
-        account.rateLimitedUntil = rateLimitedUntil
-        consola.warn(
-            `Account ${account.email} rate limited (${reason}) for ${Math.ceil(durationMs / 1000)}s (failures: ${account.consecutiveFailures})`
-        )
+        // 🆕 关键改进：只有配额耗尽才锁定整个账户，否则只锁定该模型
+        if (reason === "quota_exhausted") {
+            // 配额耗尽：锁定整个账户
+            account.rateLimitedUntil = rateLimitedUntil
+            consola.warn(
+                `Account ${account.email} rate limited (${reason}) for ${Math.ceil(durationMs / 1000)}s (failures: ${account.consecutiveFailures})`
+            )
+        } else if (modelId) {
+            // 非配额耗尽 + 有模型ID：只锁定该账户的该模型
+            const modelKey = `${accountId}:${modelId}`
+            this.modelRateLimits.set(modelKey, rateLimitedUntil!)
+            consola.warn(
+                `Account ${account.email} model ${modelId} rate limited (${reason}) for ${Math.ceil(durationMs / 1000)}s`
+            )
+        } else {
+            // 非配额耗尽 + 无模型ID：仍然锁定账户（兼容旧逻辑）
+            account.rateLimitedUntil = rateLimitedUntil
+            consola.warn(
+                `Account ${account.email} rate limited (${reason}) for ${Math.ceil(durationMs / 1000)}s (failures: ${account.consecutiveFailures})`
+            )
+        }
         return { reason, durationMs }
     }
 
@@ -483,11 +512,32 @@ class AccountManager {
 
     /**
      * 检查账号是否被限流
+     * 🆕 改进：支持账户级别和模型级别的限流检查
+     * @param accountId 账户 ID
+     * @param modelId 可选的模型 ID，如果提供则同时检查模型级别限流
      */
-    isAccountRateLimited(accountId: string): boolean {
+    isAccountRateLimited(accountId: string, modelId?: string): boolean {
         const account = this.accounts.get(accountId)
         if (!account) return false
-        return account.rateLimitedUntil !== null && account.rateLimitedUntil > Date.now()
+        
+        // 检查账户级别的限流
+        const accountLimited = account.rateLimitedUntil !== null && account.rateLimitedUntil > Date.now()
+        if (accountLimited) return true
+        
+        // 如果提供了模型 ID，检查模型级别的限流
+        if (modelId) {
+            const modelKey = `${accountId}:${modelId}`
+            const modelLimitedUntil = this.modelRateLimits.get(modelKey)
+            if (modelLimitedUntil && modelLimitedUntil > Date.now()) {
+                return true
+            }
+            // 清理过期的模型限流记录
+            if (modelLimitedUntil && modelLimitedUntil <= Date.now()) {
+                this.modelRateLimits.delete(modelKey)
+            }
+        }
+        
+        return false
     }
 
     /**
