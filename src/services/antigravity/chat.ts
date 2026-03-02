@@ -439,7 +439,7 @@ function buildFunctionCallingConfig(toolChoice?: ChatRequest["toolChoice"]): any
     }
 }
 
-function claudeToAntigravity(
+export function claudeToAntigravity(
     model: string,
     messages: ClaudeMessage[],
     tools?: ClaudeTool[],
@@ -476,6 +476,7 @@ function claudeToAntigravity(
             temperature: temperature,
             topP: topP,
             topK: topK,
+            responseMimeType: responseFormat?.type === "json_object" ? "application/json" : undefined,
         },
     }
 
