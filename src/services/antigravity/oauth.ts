@@ -13,7 +13,7 @@ import { DEFAULT_ANTIGRAVITY_USER_AGENT } from "./constants"
 export const OAUTH_CONFIG = {
     clientId: "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com",
     clientSecret: "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",
-    callbackPort: 51121,
+    callbackPort: 8965,
     authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     userInfoUrl: "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",

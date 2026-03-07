@@ -33,6 +33,6 @@ ENV HOME=/app/data
 
 RUN mkdir -p /app/data
 
-EXPOSE 8964 51121
+EXPOSE 8964 8965
 
 CMD ["bun", "run", "dist/main.js", "start"]

@@ -8,7 +8,7 @@ services:
         BUN_IMAGE: ${BUN_IMAGE:-ghcr.io/oven-sh/bun:1.1.38}
     ports:
       - "8964:8964"
-      - "51121:51121"
+      - "8965:8965"
     environment:
       ANTI_API_DATA_DIR: /app/data
       ANTI_API_OAUTH_NO_OPEN: "1"
