@@ -33,6 +33,21 @@ const MAX_NON_QUOTA_429_WAIT_MS = 4000  // Upper bound for non-quota 429 wait ti
 const NON_QUOTA_429_COOLDOWN_MS = 8000  // Cooldown before retrying a rate-limited account
 const FETCH_TIMEOUT_MS = 30000  // 防止上游请求长期卡住
 
+const SIGNATURE_CACHE_MAX_SIZE = 1000
+const signatureCache = new Map<string, string>()
+
+/**
+ * 将签名存入本地缓存，以防止客户端由于长度限制截断 Tool ID
+ */
+function cacheSignature(toolCallId: string, signature: string) {
+    if (!toolCallId || !signature) return
+    if (signatureCache.size >= SIGNATURE_CACHE_MAX_SIZE) {
+        const firstKey = signatureCache.keys().next().value
+        if (firstKey !== undefined) signatureCache.delete(firstKey)
+    }
+    signatureCache.set(toolCallId, signature)
+}
+
 /**
  * 从 429 错误中解析重试延迟时间（毫秒）
  * 支持格式：quotaResetDelay "42s", "2m30s", "1h", 或 Retry-After header
@@ -263,6 +278,7 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
     }
 
     const parts: any[] = []
+    let hasAddedSignature = false
 
     for (const block of content) {
         if (!block || typeof block !== "object") continue
@@ -286,26 +302,38 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
             let toolId = block.id || generateToolUseId()
             let thoughtSignature: string | undefined
 
-            // Extract thought signature from ID if present (persistence hack)
-            if (toolId.includes("__THOUGHT__")) {
-                const [cleanId, signature] = toolId.split("__THOUGHT__")
-                toolId = cleanId
-                toolId = cleanId
-                thoughtSignature = signature
+            // Try cache first (most reliable for long signatures)
+            thoughtSignature = signatureCache.get(toolId)
+
+            // Fallback: extract from ID if present (persistence hack)
+            if (!thoughtSignature && toolId.includes("__THOUGHT__")) {
+                const parts = toolId.split("__THOUGHT__")
+                toolId = parts[0]
+                thoughtSignature = parts.slice(1).join("__THOUGHT__")
             }
+
+            // block.thought_signature takes priority if explicitly provided
+            const finalSignature = block.thought_signature || thoughtSignature
 
             const toolName = block.name || toolId
             toolIdToName.set(toolId, toolName)
 
-            parts.push({
+            const part: any = {
                 functionCall: {
                     name: toolName,
                     args: block.input || {},
                     id: toolId,
                 },
-                ...(thoughtSignature ? { thoughtSignature: thoughtSignature } : {}),
-                ...(block.thought_signature ? { thoughtSignature: block.thought_signature } : {}),
-            })
+            }
+
+            // Gemini Rule: Only the first functionCall in a turn should have a thought_signature
+            if (finalSignature && !hasAddedSignature) {
+                // Internal API (daily-cloudcode-pa) appears to expect snake_case for the sibling field
+                part.thought_signature = finalSignature
+                hasAddedSignature = true
+            }
+
+            parts.push(part)
             continue
         }
 
@@ -313,11 +341,14 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
             let toolUseId = block.tool_use_id || ""
             let thoughtSignature: string | undefined
 
+            // Try cache first
+            thoughtSignature = signatureCache.get(toolUseId)
+
             // Extract thought signature from ID if present
-            if (toolUseId.includes("__THOUGHT__")) {
-                const [cleanId, signature] = toolUseId.split("__THOUGHT__")
-                toolUseId = cleanId
-                thoughtSignature = signature
+            if (!thoughtSignature && toolUseId.includes("__THOUGHT__")) {
+                const parts = toolUseId.split("__THOUGHT__")
+                toolUseId = parts[0]
+                thoughtSignature = parts.slice(1).join("__THOUGHT__")
             }
 
             const toolName = toolIdToName.get(toolUseId) || toolUseId || "tool"
@@ -328,12 +359,10 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
             }
             if (toolUseId) functionResponse.id = toolUseId
 
-            // Important: We need to ensure the previous turn's functionCall also has the signature?
-            // Wait, this is for `tool_result` (user/tool role). The signature is on the `functionCall` (model role).
-            // We need to modify the MODEL message processing, not the TOOL message processing.
-            // Oh right, `toolIdToName` map.
-
-            parts.push({ functionResponse })
+            parts.push({ 
+                functionResponse,
+                ...(thoughtSignature ? { thought_signature: thoughtSignature } : {}),
+            })
             continue
         }
     }
@@ -497,9 +526,10 @@ export function claudeToAntigravity(
 
     // Verify thought_signature presence in history
     try {
-        const historyParts = innerRequest.contents.flatMap((c: any) => c.parts);
-        const thoughtParts = historyParts.filter((p: any) => p.functionCall && p.functionCall.thought_signature);
-        console.log(`[DEBUG] Request contains ${thoughtParts.length} functionCalls with thought_signature`);
+        const historyContents = innerRequest.contents || []
+        const historyParts = historyContents.flatMap((c: any) => c.parts || [])
+        const thoughtParts = historyParts.filter((p: any) => p.functionCall && p.thought_signature)
+        console.log(`[DEBUG] Request contains ${thoughtParts.length} functionCalls with thought_signature`)
     } catch (e) { }
 
     return {
@@ -512,7 +542,7 @@ export function claudeToAntigravity(
     }
 }
 
-function parseApiResponse(rawResponse: string): ChatResponse {
+export function parseApiResponse(rawResponse: string): ChatResponse {
     let chunks: any[] = []
     const trimmed = rawResponse.trim()
     if (trimmed.startsWith("[")) chunks = JSON.parse(trimmed)
@@ -524,25 +554,49 @@ function parseApiResponse(rawResponse: string): ChatResponse {
 
     const contentBlocks: ContentBlock[] = []
     let hasToolUse = false
+    
+    // To handle aggregate-style responses where multiple chunks might contain the same parts
+    const processedToolIds = new Set<string>()
 
     for (const chunk of chunks) {
         const parts = chunk.response?.candidates?.[0]?.content?.parts || []
-        for (const part of parts) {
+        for (let i = 0; i < parts.length; i++) {
+            const part = parts[i]
             if (part.text) {
+                // For non-streaming, we can just take the last version or join them.
+                // Usually for non-streaming, each chunk's part.text is a delta or the full text.
+                // If it's the full text in the last chunk, we only need that.
+                // But chunks can be multiple turn components. 
+                // In Antigravity patterns, normally text is joined.
                 const last = contentBlocks[contentBlocks.length - 1]
                 if (last?.type === "text") last.text = (last.text || "") + part.text
                 else contentBlocks.push({ type: "text", text: part.text })
             }
             if (part.functionCall) {
-                hasToolUse = true
-                const input = parseFunctionCallArgs(part.functionCall.args)
-                contentBlocks.push({
-                    type: "tool_use",
-                    id: part.functionCall.id || generateToolUseId(),
-                    name: part.functionCall.name,
-                    input,
-                    ...(part.thoughtSignature ? { thought_signature: part.thoughtSignature } : {}),
-                })
+                const toolId = part.functionCall.id || `tool_${i}`
+                if (!processedToolIds.has(toolId)) {
+                    hasToolUse = true
+                    const input = parseFunctionCallArgs(part.functionCall.args)
+                    
+                    // Extract thought signature
+                    const thoughtSignature = part.thoughtSignature || 
+                                           part.thought_signature || 
+                                           part.functionCall.thought_signature || 
+                                           part.functionCall.thoughtSignature
+
+                    if (thoughtSignature) {
+                        cacheSignature(toolId, thoughtSignature)
+                    }
+
+                    contentBlocks.push({
+                        type: "tool_use",
+                        id: toolId,
+                        name: part.functionCall.name,
+                        input,
+                        ...(thoughtSignature ? { thought_signature: thoughtSignature } : {}),
+                    })
+                    processedToolIds.add(toolId)
+                }
             }
         }
     }
@@ -1195,7 +1249,6 @@ export async function* createChatCompletionStreamWithOptions(
 
         if (projectId && projectId !== "unknown") antigravityRequest.project = projectId
 
-        // 🆕 使用真正的流式读取，边读边处理边 yield
         const sseStream = sendRequestSseStreaming(
             STREAM_ENDPOINT,
             antigravityRequest,
@@ -1205,10 +1258,12 @@ export async function* createChatCompletionStreamWithOptions(
             request.model
         )
 
-        let blockIndex = 0
+        let activePartIndex = -1
         let hasToolUse = false
         let outputTokens = 0
-        let textBlockStarted = false
+        
+        const sentTextLengths = new Map<number, number>()
+        const sentArgsLengths = new Map<number, number>()
 
         const messageStart = {
             type: "message_start",
@@ -1226,55 +1281,79 @@ export async function* createChatCompletionStreamWithOptions(
         yield "event: message_start\ndata: " + JSON.stringify(messageStart) + "\n\n"
 
         for await (const chunkStr of sseStream) {
-            // 解析 JSON 字符串
             let chunk: any
-            try {
-                chunk = JSON.parse(chunkStr)
-            } catch {
-                continue
-            }
+            try { chunk = JSON.parse(chunkStr) } catch { continue }
 
-            // chunk 可能直接是响应，也可能包含 response 字段
             const responseData = chunk.response || chunk
             const parts = responseData?.candidates?.[0]?.content?.parts || []
 
-            for (const part of parts) {
-                if (part.text) {
-                    // 只在第一次遇到文本时发送 block_start
-                    if (!textBlockStarted) {
-                        yield "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":" + blockIndex + ",\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
-                        textBlockStarted = true
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i]
+                
+                if (i > activePartIndex) {
+                    if (activePartIndex >= 0) {
+                        yield "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":" + activePartIndex + "}\n\n"
                     }
-                    // 每个 text chunk 只发送 delta
-                    const textDelta = { type: "content_block_delta", index: blockIndex, delta: { type: "text_delta", text: part.text } }
-                    yield "event: content_block_delta\ndata: " + JSON.stringify(textDelta) + "\n\n"
+                    
+                    activePartIndex = i
+                    
+                    if (part.text !== undefined) {
+                        yield "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":" + i + ",\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+                    } else if (part.functionCall) {
+                        hasToolUse = true
+                        const toolId = part.functionCall.id || `tool_${i}`
+                        const thoughtSignature = part.thoughtSignature || 
+                                               part.thought_signature || 
+                                               part.functionCall?.thought_signature || 
+                                               part.functionCall?.thoughtSignature
+                        
+                        const toolStart: any = { 
+                            type: "content_block_start", 
+                            index: i, 
+                            content_block: { 
+                                type: "tool_use", 
+                                id: toolId, 
+                                name: part.functionCall.name, 
+                                input: {} 
+                            } 
+                        }
+                        
+                        if (thoughtSignature) {
+                            toolStart.content_block.thought_signature = thoughtSignature
+                        }
+
+                        yield "event: content_block_start\ndata: " + JSON.stringify(toolStart) + "\n\n"
+                    }
                 }
-                if (part.functionCall) {
-                    // 先关闭文本块（如果有）
-                    if (textBlockStarted) {
-                        yield "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":" + blockIndex + "}\n\n"
-                        blockIndex++
-                        textBlockStarted = false
+
+                if (i === activePartIndex) {
+                    if (part.text) {
+                        const prevLength = sentTextLengths.get(i) || 0
+                        const newText = part.text.slice(prevLength)
+                        if (newText) {
+                            yield "event: content_block_delta\ndata: " + JSON.stringify({ 
+                                type: "content_block_delta", 
+                                index: i, 
+                                delta: { type: "text_delta", text: newText } 
+                            }) + "\n\n"
+                            sentTextLengths.set(i, part.text.length)
+                        }
                     }
 
-                    hasToolUse = true
-                    const toolStart: any = { type: "content_block_start", index: blockIndex, content_block: { type: "tool_use", id: part.functionCall.id || generateToolUseId(), name: part.functionCall.name, input: {} } }
-                    // Correctly extract thoughtSignature from part (it's a sibling of functionCall)
-                    if (part.thoughtSignature) {
-                        toolStart.content_block.thought_signature = part.thoughtSignature
-                    } else if (part.functionCall.thought_signature) {
-                        // Fallback just in case
-                        toolStart.content_block.thought_signature = part.functionCall.thought_signature
-                    }
-                    yield "event: content_block_start\ndata: " + JSON.stringify(toolStart) + "\n\n"
-                    if (part.functionCall.args) {
+                    if (part.functionCall?.args) {
                         const rawArgs = part.functionCall.args
-                        const partialJson = typeof rawArgs === "string" ? rawArgs : (JSON.stringify(rawArgs) || "{}")
-                        const inputDelta = { type: "content_block_delta", index: blockIndex, delta: { type: "input_json_delta", partial_json: partialJson } }
-                        yield "event: content_block_delta\ndata: " + JSON.stringify(inputDelta) + "\n\n"
+                        const fullJson = typeof rawArgs === "string" ? rawArgs : (JSON.stringify(rawArgs) || "{}")
+                        const prevArgsLength = sentArgsLengths.get(i) || 0
+                        const newArgs = fullJson.slice(prevArgsLength)
+                        if (newArgs) {
+                            yield "event: content_block_delta\ndata: " + JSON.stringify({ 
+                                type: "content_block_delta", 
+                                index: i, 
+                                delta: { type: "input_json_delta", partial_json: newArgs } 
+                            }) + "\n\n"
+                            sentArgsLengths.set(i, fullJson.length)
+                        }
                     }
-                    yield "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":" + blockIndex + "}\n\n"
-                    blockIndex++
                 }
             }
 
@@ -1282,9 +1361,8 @@ export async function* createChatCompletionStreamWithOptions(
             if (usage) outputTokens = (usage.candidatesTokenCount || 0) + (usage.thoughtsTokenCount || 0)
         }
 
-        // 关闭最后的文本块（如果有）
-        if (textBlockStarted) {
-            yield "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":" + blockIndex + "}\n\n"
+        if (activePartIndex >= 0) {
+            yield "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":" + activePartIndex + "}\n\n"
         }
 
         if (!hasToolUse && request.toolChoice?.type === "tool") {
@@ -1295,7 +1373,6 @@ export async function* createChatCompletionStreamWithOptions(
         yield "event: message_delta\ndata: " + JSON.stringify(messageDelta) + "\n\n"
         yield "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
 
-        // Record usage (fire-and-forget) - use actual native model ID
         const actualModelId = getAntigravityModelName(request.model)
         if (outputTokens > 0) {
             import("~/services/usage-tracker").then(({ recordUsage }) => {
