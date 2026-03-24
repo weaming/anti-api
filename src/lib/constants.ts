@@ -25,9 +25,6 @@ export const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000
 /** OAuth authentication timeout */
 export const OAUTH_TIMEOUT_MS = 5 * 60 * 1000
 
-/** Tunnel status check interval */
-export const TUNNEL_CHECK_INTERVAL_MS = 60_000
-
 /** Quota fetch retry delay */
 export const QUOTA_RETRY_DELAY_MS = 1000
 

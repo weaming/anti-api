@@ -32,7 +32,6 @@ test("loadSettings returns defaults in a fresh home", async () => {
 
     expect(settings).toEqual({
         preloadRouting: true,
-        autoNgrok: false,
         autoOpenDashboard: true,
         autoRefresh: true,
         autoRestart: false,
@@ -51,10 +50,9 @@ test("saveSettings merges updates with defaults", async () => {
     const { dir, prevHome, prevProfile } = withTempHome()
     const { loadSettings, saveSettings } = await import(`../src/services/settings.ts?${Date.now()}`)
 
-    saveSettings({ autoNgrok: true, privacyMode: true })
+    saveSettings({ privacyMode: true })
     const settings = loadSettings()
 
-    expect(settings.autoNgrok).toBe(true)
     expect(settings.privacyMode).toBe(true)
     expect(settings.preloadRouting).toBe(true)
     expect(settings.autoOpenDashboard).toBe(true)

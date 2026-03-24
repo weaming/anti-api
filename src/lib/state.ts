@@ -24,8 +24,6 @@ export interface State {
     csrfToken: string | null
     // Cascade 会话ID
     cascadeId: string | null
-    // 公共隧道 URL
-    publicUrl: string | null
 }
 
 export const state: State = {
@@ -41,6 +39,5 @@ export const state: State = {
     languageServerPort: null,
     csrfToken: null,
     cascadeId: null,
-    publicUrl: null,
 }
 

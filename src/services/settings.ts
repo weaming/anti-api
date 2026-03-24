@@ -12,7 +12,6 @@ const SETTINGS_FILE = join(SETTINGS_DIR, "settings.json")
 
 export interface AppSettings {
     preloadRouting: boolean
-    autoNgrok: boolean
     autoOpenDashboard: boolean
     autoRefresh: boolean
     autoRestart: boolean
@@ -25,7 +24,6 @@ export interface AppSettings {
 
 const DEFAULT_SETTINGS: AppSettings = {
     preloadRouting: true,
-    autoNgrok: false,
     autoOpenDashboard: true,
     autoRefresh: true,
     autoRestart: false,

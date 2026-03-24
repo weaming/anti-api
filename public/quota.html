@@ -192,15 +192,6 @@
             animation: claude-breathe 2s ease-in-out infinite;
         }
 
-        /* Remote 按钮 - Antigravity 蓝色霓虹 */
-        #remote-btn:hover {
-            background: rgba(71, 150, 227, 0.15);
-            border-color: var(--anti-blue);
-            backdrop-filter: blur(20px);
-            box-shadow: 0 0 20px rgba(71, 150, 227, 0.4),
-                0 0 40px rgba(71, 150, 227, 0.2);
-        }
-
         /* Refresh 按钮 - 白色霓虹 */
         #refresh-btn:hover {
             background: rgba(255, 255, 255, 0.15);
@@ -332,10 +323,6 @@
                 class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200 hidden">
                 Usage
             </button>
-            <button onclick="switchTab('remote')" id="tab-remote"
-                class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200">
-                Remote
-            </button>
             <button onclick="switchTab('routing')" id="tab-routing"
                 class="tab-btn px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 text-gray-400 hover:text-gray-200">
                 Routing <span class="text-[10px] text-gray-500">(Beta)</span>
@@ -459,12 +446,6 @@
             </div>
         </div>
 
-        <!-- ==================== REMOTE TAB ==================== -->
-        <div id="tab-content-remote" class="tab-content hidden">
-            <iframe id="remote-iframe" class="w-full border-0 bg-black"
-                style="height: calc(100vh - 160px); min-height: 500px;"></iframe>
-        </div>
-
         <!-- ==================== ROUTING TAB ==================== -->
         <div id="tab-content-routing" class="tab-content hidden">
             <iframe id="routing-iframe" class="w-full border-0 bg-black"
@@ -540,17 +521,6 @@
                             </div>
                         </div>
                         <input type="checkbox" id="setting-preload-routing" class="toggle-switch" checked>
-                    </label>
-
-                    <!-- Auto Start ngrok -->
-                    <label
-                        class="flex items-center justify-between p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors cursor-pointer">
-                        <div>
-                            <div class="text-gray-200 font-medium">Auto Start ngrok</div>
-                            <div class="text-gray-500 text-xs mt-0.5">Automatically start ngrok tunnel on server launch
-                            </div>
-                        </div>
-                        <input type="checkbox" id="setting-auto-ngrok" class="toggle-switch">
                     </label>
 
                     <!-- Auto Open Dashboard -->
@@ -736,7 +706,6 @@
 
         // Tab state
         let currentTab = 'quota';
-        let remoteLoaded = false;
         let routingLoaded = false;
         let connectLoaded = false;
         let logsLoaded = false;
@@ -753,7 +722,6 @@
         let cachedSettings = null;
         const defaultSettings = {
             preloadRouting: true,
-            autoNgrok: false,
             autoOpenDashboard: true,
             autoRefresh: true,
             autoRestart: false,
@@ -778,7 +746,6 @@
         async function saveAllSettings() {
             const settings = {
                 preloadRouting: document.getElementById('setting-preload-routing').checked,
-                autoNgrok: document.getElementById('setting-auto-ngrok').checked,
                 autoOpenDashboard: document.getElementById('setting-auto-open').checked,
                 autoRefresh: document.getElementById('setting-auto-refresh').checked,
                 autoRestart: document.getElementById('setting-auto-restart').checked,
@@ -846,11 +813,6 @@
                 activeContent.classList.remove('hidden');
             }
 
-            // Lazy load Remote content
-            if (tabName === 'remote' && !remoteLoaded) {
-                loadRemoteContent();
-            }
-
             // Lazy load Routing content or reload if privacy changed
             if (tabName === 'routing') {
                 const currentPrivacy = localStorage.getItem('anti-api-privacy-mode') || 'false';
@@ -884,14 +846,6 @@
             }
         }
 
-        function loadRemoteContent() {
-            const iframe = document.getElementById('remote-iframe');
-            if (iframe && !iframe.src.includes('/remote-panel')) {
-                iframe.src = '/remote-panel';
-            }
-            remoteLoaded = true;
-        }
-
         function loadRoutingContent() {
             const iframe = document.getElementById('routing-iframe');
             if (iframe && !iframe.src.includes('/routing')) {
@@ -912,7 +866,6 @@
         async function resetSettings() {
             // Update UI to defaults
             document.getElementById('setting-preload-routing').checked = true;
-            document.getElementById('setting-auto-ngrok').checked = false;
             document.getElementById('setting-auto-open').checked = true;
             document.getElementById('setting-auto-refresh').checked = true;
             document.getElementById('setting-auto-restart').checked = false;
@@ -929,7 +882,6 @@
 
         async function enableAllSettings() {
             document.getElementById('setting-preload-routing').checked = true;
-            document.getElementById('setting-auto-ngrok').checked = true;
             document.getElementById('setting-auto-open').checked = true;
             document.getElementById('setting-auto-refresh').checked = true;
             document.getElementById('setting-auto-restart').checked = true;
@@ -945,7 +897,6 @@
 
         async function disableAllSettings() {
             document.getElementById('setting-preload-routing').checked = false;
-            document.getElementById('setting-auto-ngrok').checked = false;
             document.getElementById('setting-auto-open').checked = false;
             document.getElementById('setting-auto-refresh').checked = false;
             document.getElementById('setting-auto-restart').checked = false;
@@ -1028,7 +979,6 @@
 
             // Update UI checkboxes
             document.getElementById('setting-preload-routing').checked = settings.preloadRouting;
-            document.getElementById('setting-auto-ngrok').checked = settings.autoNgrok;
             document.getElementById('setting-auto-open').checked = settings.autoOpenDashboard;
             document.getElementById('setting-auto-refresh').checked = settings.autoRefresh;
             document.getElementById('setting-auto-restart').checked = settings.autoRestart;
@@ -1681,49 +1631,6 @@
                 planInfo.innerHTML = `<span class="text-gray-400">Connecting...</span>`;
             }
             fetchQuota();
-        }
-
-        // 隧道状态变量
-        let tunnelUrl = null;
-
-        // 检查隧道状态
-        async function checkTunnelStatus() {
-            try {
-                const response = await fetch(`${API_BASE}/tunnel/status`);
-                const data = await response.json();
-
-                const tunnelContainer = document.getElementById('tunnel-container');
-
-                if (data.active && data.url) {
-                    tunnelUrl = data.url;
-                    tunnelContainer.style.display = 'block';
-                } else {
-                    tunnelUrl = null;
-                    tunnelContainer.style.display = 'none';
-                }
-            } catch (error) {
-                console.error('Failed to check tunnel status:', error);
-            }
-        }
-
-        // 复制隧道 URL
-        async function copyTunnelUrl() {
-            if (!tunnelUrl) return;
-
-            try {
-                await navigator.clipboard.writeText(tunnelUrl);
-
-                // 显示复制成功提示
-                const toast = document.getElementById('copy-toast');
-                toast.textContent = `Copied: ${tunnelUrl}`;
-                toast.classList.remove('opacity-0', 'translate-x-8');
-
-                setTimeout(() => {
-                    toast.classList.add('opacity-0', 'translate-x-8');
-                }, 2000);
-            } catch (error) {
-                alert(`Failed to copy: ${tunnelUrl}`);
-            }
         }
 
         // 检查认证状态并更新按钮显示

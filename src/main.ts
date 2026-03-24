@@ -148,23 +148,6 @@ const start = defineCommand({
         if (getSetting("autoOpenDashboard")) {
             openBrowser(`http://localhost:${state.port}/quota`)
         }
-
-        // 根据设置决定是否自动启动 ngrok（延迟 3 秒确保服务就绪）
-        if (getSetting("autoNgrok")) {
-            setTimeout(async () => {
-                const { startNgrok } = await import("./services/tunnel-manager")
-                try {
-                    const result = await startNgrok(state.port)
-                    if (result.url) {
-                        consola.success(`ngrok tunnel: ${result.url}`)
-                    } else if (result.error) {
-                        consola.warn(`ngrok: ${result.error}`)
-                    }
-                } catch (error) {
-                    consola.warn(`ngrok: ${(error as Error).message}`)
-                }
-            }, 3000)
-        }
     },
 })
 
@@ -230,126 +213,12 @@ const listAccounts = defineCommand({
     },
 })
 
-// Remote 命令 - 启动服务器并创建公共隧道
-const remote = defineCommand({
-    meta: {
-        name: "remote",
-        description: "启动Anti-API并创建公共访问隧道",
-    },
-    args: {
-        port: {
-            type: "string",
-            default: "8964",
-            description: "监听端口",
-            alias: "p",
-        },
-        subdomain: {
-            type: "string",
-            default: "",
-            description: "自定义子域名(可选)",
-            alias: "s",
-        },
-    },
-    async run({ args }) {
-        const { spawn } = await import("child_process")
-
-        state.port = parseInt(args.port, 10)
-        state.verbose = true
-        consola.level = 0
-
-        // 初始化认证
-        initAuth()
-        await setupAntigravityToken()
-
-        // 获取language_server信息 (用于配额查询)
-        const lsInfo = await getLanguageServerInfo()
-        if (lsInfo) {
-            state.languageServerPort = lsInfo.port
-            state.csrfToken = lsInfo.csrfToken
-        }
-
-        // 启动服务器
-        Bun.serve({
-            fetch: server.fetch,
-            hostname: "0.0.0.0",
-            port: state.port,
-            idleTimeout: 120,
-        })
-
-        consola.success(`Anti-API local server started: http://localhost:${state.port}`)
-
-        // 使用 ngrok 创建隧道
-        consola.info("Creating ngrok tunnel...")
-
-        const ngrok = spawn("ngrok", ["http", state.port.toString(), "--log", "stdout"], {
-            stdio: ["ignore", "pipe", "pipe"]
-        })
-
-        // 等待 ngrok 启动并获取 URL（重试机制）
-        let tunnelUrl = ""
-        for (let i = 0; i < 10; i++) {
-            await new Promise(resolve => setTimeout(resolve, 2000))
-            try {
-                const apiRes = await fetch("http://localhost:4040/api/tunnels")
-                const data = await apiRes.json() as any
-                tunnelUrl = data.tunnels?.[0]?.public_url || ""
-                if (tunnelUrl) {
-                    state.publicUrl = tunnelUrl
-                    break
-                }
-            } catch (e) {
-                // 继续重试
-            }
-            consola.info(`Waiting for ngrok... (${i + 1}/10)`)
-        }
-
-        if (tunnelUrl) {
-            consola.box({
-                title: "🌍 Anti-API 公共端点已就绪",
-                message: `
-公共 URL: ${tunnelUrl}
-
-本地面板: http://localhost:${state.port}/quota
-公共面板: ${tunnelUrl}/quota
-
-API 端点: ${tunnelUrl}/v1/messages
-
-✅ 直接可用，无需确认！
-                `.trim(),
-                style: {
-                    borderColor: "green",
-                }
-            })
-        } else {
-            consola.error("ngrok failed to start, check configuration")
-            process.exit(1)
-        }
-
-        ngrok.on("close", (code: number) => {
-            consola.warn("ngrok closed, exit code:", code)
-            process.exit(0)
-        })
-
-        ngrok.on("error", (err: Error) => {
-            consola.error("ngrok failed to start:", err.message)
-            process.exit(1)
-        })
-
-        // 保持进程运行
-        process.on("SIGINT", () => {
-            consola.info("Shutting down...")
-            ngrok.kill()
-            process.exit(0)
-        })
-    },
-})
-
 const main = defineCommand({
     meta: {
         name: "anti-api",
         description: "Antigravity API Proxy - 将Antigravity内置大模型暴露为Anthropic兼容API",
     },
-    subCommands: { start, remote, "add-account": addAccount, accounts: listAccounts },
+    subCommands: { start, "add-account": addAccount, accounts: listAccounts },
 })
 
 await runMain(main)

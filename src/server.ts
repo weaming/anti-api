@@ -11,7 +11,6 @@ import consola from "consola"
 import { messageRoutes } from "./routes/messages/route"
 import { openaiRoutes } from "./routes/openai/route"
 import { authRouter } from "./routes/auth/route"
-import { remoteRouter } from "./routes/remote/route"
 import { routingRouter } from "./routes/routing/route"
 import { logsRouter } from "./routes/logs/route"
 import { AVAILABLE_MODELS } from "./lib/config"
@@ -67,36 +66,11 @@ server.get("/", (c) => c.redirect("/quota"))
 // Auth 路由
 server.route("/auth", authRouter)
 
-// Remote 隧道控制路由
-server.route("/remote", remoteRouter)
-
 // Routing 配置路由
 server.route("/routing", routingRouter)
 
 // Logs
 server.route("/logs", logsRouter)
-
-// Remote 控制页面 - HTML
-server.get("/remote-panel", async (c) => {
-    try {
-        const htmlPath = join(process.cwd(), "public/remote.html")
-        const html = readFileSync(htmlPath, "utf-8")
-        return c.html(html)
-    } catch (error) {
-        return c.text("Remote panel not found", 404)
-    }
-})
-
-// 获取公网IP
-server.get("/remote/public-ip", async (c) => {
-    try {
-        const res = await fetch("https://api.ipify.org?format=json")
-        const data = await res.json() as { ip: string }
-        return c.json({ ip: data.ip })
-    } catch (error) {
-        return c.json({ error: "Failed to get IP" }, 500)
-    }
-})
 
 // Settings API - 获取设置
 server.get("/settings", (c) => {
@@ -319,15 +293,6 @@ server.delete("/accounts/:id", async (c) => {
         return c.json({ success: true, message: `Account ${accountId} removed` })
     }
     return c.json({ success: false, error: "Account not found" }, 404)
-})
-
-// 隧道状态 - 返回公共 URL
-server.get("/tunnel/status", (c) => {
-    const { state } = require("./lib/state")
-    return c.json({
-        active: !!state.publicUrl,
-        url: state.publicUrl,
-    })
 })
 
 // Embeddings 端点 - 占位（FlowDown 等客户端会请求）

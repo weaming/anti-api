@@ -6,7 +6,6 @@
 ## ✨ 特性
 
 - **🎯 智能路由** - 支持自定义 flow (route:fast) 和官方模型 ID (claude-3-5-sonnet) 的混合路由
-- **🌐 远程访问** - 内置 ngrok 支持，一键生成公网地址
 - **📊 完整面板** - 包含配额监控、路由配置、设置面板的 Web 界面
 - **🔄 自动轮换** - 遇到 429 错误时自动无缝切换下一个账号
 - **⚡ 双格式** - 同时兼容 OpenAI 和 Anthropic API 格式
@@ -75,10 +74,6 @@ docker compose up -d
   }
 }
 ```
-
-### 远程访问
-
-访问 `http://localhost:8964/remote-panel`，配置 ngrok token 后即可一键开启公网访问。
 
 ## 📝 开发
 
