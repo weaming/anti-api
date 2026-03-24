@@ -60,8 +60,8 @@ test("claudeToAntigravity correctly maps thought_signature as a sibling", () => 
     expect(parts[1].functionCall.name).toBe("get_forecast")
     expect(parts[1].functionCall.id).toBe("call_2")
     
-    // Second one should NOT have signature (Gemini rule)
-    expect(parts[1].thought_signature).toBeUndefined()
+    // Second one should also have signature if provided in ID (Gemini rule update)
+    expect(parts[1].thought_signature).toBe("sig456")
 
     // Check the tool response message (user role after assistant)
     const userResultMsg = contents.find((c: any) => c.role === "user" && c.parts[0].functionResponse)

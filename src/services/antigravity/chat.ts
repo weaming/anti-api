@@ -164,7 +164,18 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
 }
 
 function getAntigravityModelName(userModel: string): string {
-    return userModel || ""
+    const { isOfficialModel } = require("../routing/models")
+    if (!userModel) return "gemini-3-flash"
+    
+    // 如果是已知官方模型，直接使用
+    const { AVAILABLE_MODELS } = require("~/lib/config")
+    const { isDiscoveredModel } = require("../model-discovery")
+    
+    const isKnown = AVAILABLE_MODELS.some((m: any) => m.id === userModel) || isDiscoveredModel(userModel)
+    if (isKnown) return userModel
+    
+    // 未知模型统一映射到 gemini-3-flash
+    return "gemini-3-flash"
 }
 
 export interface ChatRequest {
@@ -307,9 +318,9 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
 
             // Fallback: extract from ID if present (persistence hack)
             if (!thoughtSignature && toolId.includes("__THOUGHT__")) {
-                const parts = toolId.split("__THOUGHT__")
-                toolId = parts[0]
-                thoughtSignature = parts.slice(1).join("__THOUGHT__")
+                const pieces = toolId.split("__THOUGHT__")
+                toolId = pieces[0]
+                thoughtSignature = pieces.slice(1).join("__THOUGHT__")
             }
 
             // block.thought_signature takes priority if explicitly provided
@@ -317,6 +328,11 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
 
             const toolName = block.name || toolId
             toolIdToName.set(toolId, toolName)
+
+            // DEBUG: Log each tool use processing
+            if (state.verbose) {
+                console.log(`[DEBUG] Processing tool_use: toolId=${toolId}, name=${toolName}, hasSig=${!!finalSignature}`)
+            }
 
             const part: any = {
                 functionCall: {
@@ -326,11 +342,10 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
                 },
             }
 
-            // Gemini Rule: Only the first functionCall in a turn should have a thought_signature
-            if (finalSignature && !hasAddedSignature) {
+            // Gemini Rule: Agents must have a thought_signature for each functionCall in a turn in some versions
+            if (finalSignature) {
                 // Internal API (daily-cloudcode-pa) appears to expect snake_case for the sibling field
                 part.thought_signature = finalSignature
-                hasAddedSignature = true
             }
 
             parts.push(part)
@@ -346,12 +361,18 @@ function buildAntigravityParts(content: ClaudeMessage["content"], toolIdToName: 
 
             // Extract thought signature from ID if present
             if (!thoughtSignature && toolUseId.includes("__THOUGHT__")) {
-                const parts = toolUseId.split("__THOUGHT__")
-                toolUseId = parts[0]
-                thoughtSignature = parts.slice(1).join("__THOUGHT__")
+                const pieces = toolUseId.split("__THOUGHT__")
+                toolUseId = pieces[0]
+                thoughtSignature = pieces.slice(1).join("__THOUGHT__")
             }
 
             const toolName = toolIdToName.get(toolUseId) || toolUseId || "tool"
+            
+            // DEBUG: Log tool result processing
+            if (state.verbose) {
+                console.log(`[DEBUG] Processing tool_result: toolUseId=${toolUseId}, name=${toolName}, hasSig=${!!thoughtSignature}`)
+            }
+
             const merged = mergeToolResultContent(block.content, (block as any).is_error)
             const functionResponse: any = {
                 name: toolName,
@@ -579,10 +600,15 @@ export function parseApiResponse(rawResponse: string): ChatResponse {
                     const input = parseFunctionCallArgs(part.functionCall.args)
                     
                     // Extract thought signature
-                    const thoughtSignature = part.thoughtSignature || 
+                    let thoughtSignature = part.thoughtSignature || 
                                            part.thought_signature || 
                                            part.functionCall.thought_signature || 
                                            part.functionCall.thoughtSignature
+                    
+                    // If no signature on the part itself, use the candidate-level or previously seen one in this chunk
+                    if (!thoughtSignature && chunk.response?.candidates?.[0]?.thought_signature) {
+                        thoughtSignature = chunk.response.candidates[0].thought_signature
+                    }
 
                     if (thoughtSignature) {
                         cacheSignature(toolId, thoughtSignature)
@@ -1300,10 +1326,14 @@ export async function* createChatCompletionStreamWithOptions(
                     } else if (part.functionCall) {
                         hasToolUse = true
                         const toolId = part.functionCall.id || `tool_${i}`
-                        const thoughtSignature = part.thoughtSignature || 
+                        let thoughtSignature = part.thoughtSignature || 
                                                part.thought_signature || 
                                                part.functionCall?.thought_signature || 
                                                part.functionCall?.thoughtSignature
+                        
+                        if (!thoughtSignature && responseData?.candidates?.[0]?.thought_signature) {
+                            thoughtSignature = responseData.candidates[0].thought_signature
+                        }
                         
                         const toolStart: any = { 
                             type: "content_block_start", 
@@ -1318,6 +1348,11 @@ export async function* createChatCompletionStreamWithOptions(
                         
                         if (thoughtSignature) {
                             toolStart.content_block.thought_signature = thoughtSignature
+                            // Cache the signature so it can be retrieved even if the client strips the ID suffix
+                            cacheSignature(toolId, thoughtSignature)
+                            if (state.verbose) {
+                                consola.debug(`[DEBUG] Cached signature for toolId=${toolId}`)
+                            }
                         }
 
                         yield "event: content_block_start\ndata: " + JSON.stringify(toolStart) + "\n\n"
