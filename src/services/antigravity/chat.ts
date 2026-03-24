@@ -1262,8 +1262,6 @@ export async function* createChatCompletionStreamWithOptions(
         let hasToolUse = false
         let outputTokens = 0
         
-        const sentTextLengths = new Map<number, number>()
-        const sentArgsLengths = new Map<number, number>()
 
         const messageStart = {
             type: "message_start",
@@ -1328,31 +1326,21 @@ export async function* createChatCompletionStreamWithOptions(
 
                 if (i === activePartIndex) {
                     if (part.text) {
-                        const prevLength = sentTextLengths.get(i) || 0
-                        const newText = part.text.slice(prevLength)
-                        if (newText) {
-                            yield "event: content_block_delta\ndata: " + JSON.stringify({ 
-                                type: "content_block_delta", 
-                                index: i, 
-                                delta: { type: "text_delta", text: newText } 
-                            }) + "\n\n"
-                            sentTextLengths.set(i, part.text.length)
-                        }
+                        yield "event: content_block_delta\ndata: " + JSON.stringify({ 
+                            type: "content_block_delta", 
+                            index: i, 
+                            delta: { type: "text_delta", text: part.text } 
+                        }) + "\n\n"
                     }
 
                     if (part.functionCall?.args) {
                         const rawArgs = part.functionCall.args
                         const fullJson = typeof rawArgs === "string" ? rawArgs : (JSON.stringify(rawArgs) || "{}")
-                        const prevArgsLength = sentArgsLengths.get(i) || 0
-                        const newArgs = fullJson.slice(prevArgsLength)
-                        if (newArgs) {
-                            yield "event: content_block_delta\ndata: " + JSON.stringify({ 
-                                type: "content_block_delta", 
-                                index: i, 
-                                delta: { type: "input_json_delta", partial_json: newArgs } 
-                            }) + "\n\n"
-                            sentArgsLengths.set(i, fullJson.length)
-                        }
+                        yield "event: content_block_delta\ndata: " + JSON.stringify({ 
+                            type: "content_block_delta", 
+                            index: i, 
+                            delta: { type: "input_json_delta", partial_json: fullJson } 
+                        }) + "\n\n"
                     }
                 }
             }

@@ -23,7 +23,9 @@ const VALIDATION_FIELDS = [
 const HARD_REMOVE_FIELDS = [
     '$schema', '$id', 'additionalProperties', 'enumCaseInsensitive',
     'enumNormalizeWhitespace', 'uniqueItems', 'default', 'const',
-    'examples', 'propertyNames', 'anyOf', 'oneOf', 'allOf', 'not',
+    'examples', 'example', 'patternProperties', 'minProperties', 
+    'maxProperties', 'additionalItems', 'definitions', '$defs',
+    'propertyNames', 'anyOf', 'oneOf', 'allOf', 'not',
     'if', 'then', 'else', 'dependencies', 'dependentSchemas',
     'dependentRequired', 'cache_control', 'contentEncoding',
     'contentMediaType', 'deprecated', 'readOnly', 'writeOnly',
